@@ -1,14 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
+import { getAppBaseUrl } from '@/lib/ai/mcp/app-url';
 
 /**
- * Official Client ID Metadata Document (CIMD) for Makkari MCP Client
- * URL: https://makkari.ai/.well-known/oauth-client-metadata.json
+ * Official Client ID Metadata Document (CIMD) for Canva MCP
+ * Specification: RFC 7591 / Canva MCP OAuth
  * Ref: https://www.canva.dev/docs/mcp/
  */
 export async function GET(req: NextRequest) {
-  const origin = req.nextUrl.origin;
-  const isLocal = origin.includes('localhost') || origin.includes('127.0.0.1');
-  const baseUri = isLocal ? origin : 'https://makkari.ai';
+  const baseUri = getAppBaseUrl(req);
 
   const metadata = {
     client_id: `${baseUri}/.well-known/oauth-client-metadata.json`,
@@ -17,9 +16,9 @@ export async function GET(req: NextRequest) {
     logo_uri: `${baseUri}/icon.png`,
     redirect_uris: [
       `${baseUri}/api/mcp/canva/callback`,
+      'https://makkari-ai.vercel.app/api/mcp/canva/callback',
       'http://localhost:3000/api/mcp/canva/callback',
     ],
-
     grant_types: ['authorization_code', 'refresh_token'],
     response_types: ['code'],
     scope: 'design:content:read design:content:write design:meta:read',

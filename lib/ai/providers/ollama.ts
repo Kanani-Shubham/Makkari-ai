@@ -18,9 +18,22 @@ export class OllamaAdapter implements LocalProviderAdapter {
   private activeBaseUrl = OLLAMA_PRIMARY_URL;
 
   private async getWorkingBaseUrl(): Promise<string> {
+    const customUrl = process.env.NEXT_PUBLIC_OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL;
+    if (customUrl && customUrl.trim() !== '') {
+      return customUrl.replace(/\/+$/, '');
+    }
+
+    const isCloudServerless =
+      process.env.VERCEL === '1' ||
+      process.env.NEXT_PUBLIC_APP_URL?.includes('vercel.app');
+
+    if (isCloudServerless) {
+      return OLLAMA_PRIMARY_URL;
+    }
+
     try {
       const res = await fetch(`${OLLAMA_PRIMARY_URL}/api/tags`, {
-        signal: AbortSignal.timeout(1500),
+        signal: AbortSignal.timeout(1000),
       });
       if (res.ok) {
         this.activeBaseUrl = OLLAMA_PRIMARY_URL;
@@ -30,7 +43,7 @@ export class OllamaAdapter implements LocalProviderAdapter {
       // Try localhost fallback
       try {
         const fallbackRes = await fetch(`${OLLAMA_FALLBACK_URL}/api/tags`, {
-          signal: AbortSignal.timeout(1500),
+          signal: AbortSignal.timeout(1000),
         });
         if (fallbackRes.ok) {
           this.activeBaseUrl = OLLAMA_FALLBACK_URL;
@@ -44,6 +57,19 @@ export class OllamaAdapter implements LocalProviderAdapter {
   }
 
   async getLocalStatus(): Promise<ProviderHealth> {
+    const isCloudServerless =
+      process.env.VERCEL === '1' ||
+      process.env.NEXT_PUBLIC_APP_URL?.includes('vercel.app');
+
+    const customUrl = process.env.NEXT_PUBLIC_OLLAMA_BASE_URL || process.env.OLLAMA_BASE_URL;
+
+    if (isCloudServerless && !customUrl) {
+      return {
+        status: 'unavailable',
+        message: 'Ollama is local-only. Running Makkari locally connects to localhost:11434, or configure a remote URL.',
+      };
+    }
+
     try {
       const startTime = Date.now();
       const baseUrl = await this.getWorkingBaseUrl();
@@ -63,6 +89,7 @@ export class OllamaAdapter implements LocalProviderAdapter {
       };
     }
   }
+
 
   async healthCheck(): Promise<ProviderHealth> {
     return this.getLocalStatus();

@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createClient } from '@/lib/supabase/server';
 import { generateCodeVerifier, generateCodeChallenge } from '@/lib/ai/mcp/pkce';
 import { buildCanvaMcpAuthUrl } from '@/lib/ai/mcp/canva-auth';
-
+import { getAppBaseUrl } from '@/lib/ai/mcp/app-url';
 
 export async function POST(req: NextRequest) {
   try {
@@ -18,7 +18,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const origin = req.nextUrl.origin;
+    const origin = getAppBaseUrl(req);
+
     const isCanva = serverId === 'canva-mcp' || serverId?.toLowerCase().includes('canva');
     const isGithub = serverId === 'github-mcp' || serverId?.toLowerCase().includes('github');
 

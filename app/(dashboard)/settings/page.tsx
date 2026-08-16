@@ -501,8 +501,9 @@ function SettingsContent() {
                   </p>
                 </div>
 
-                <div className="grid grid-cols-3 gap-3 max-w-md">
+                <div className="grid grid-cols-3 gap-3 max-w-md" suppressHydrationWarning>
                   <button
+                    suppressHydrationWarning
                     type="button"
                     onClick={() => handleThemeChange('light')}
                     className={cn(
@@ -517,6 +518,7 @@ function SettingsContent() {
                   </button>
 
                   <button
+                    suppressHydrationWarning
                     type="button"
                     onClick={() => handleThemeChange('dark')}
                     className={cn(
@@ -531,6 +533,7 @@ function SettingsContent() {
                   </button>
 
                   <button
+                    suppressHydrationWarning
                     type="button"
                     onClick={() => handleThemeChange('system')}
                     className={cn(

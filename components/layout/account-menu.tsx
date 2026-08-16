@@ -124,6 +124,7 @@ export function AccountMenu({ onNavigate }: AccountMenuProps) {
 
       {/* Main Profile Trigger Card */}
       <button
+        suppressHydrationWarning
         onClick={() => setIsOpen(!isOpen)}
         className={cn(
           'w-full flex items-center justify-between p-2 rounded-2xl transition-all cursor-pointer border',
@@ -132,6 +133,7 @@ export function AccountMenu({ onNavigate }: AccountMenuProps) {
             : 'bg-white/60 dark:bg-[#202020]/60 border-[#E8E5E0] dark:border-[#2E2E2E] hover:bg-white dark:hover:bg-[#242424]'
         )}
       >
+
         <div className="flex items-center gap-2.5 min-w-0">
           <Avatar src={user?.avatar_url} name={user?.full_name} size="sm" />
           <div className="flex flex-col text-left min-w-0">

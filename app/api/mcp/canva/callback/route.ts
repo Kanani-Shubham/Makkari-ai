@@ -15,12 +15,16 @@ export async function GET(req: NextRequest) {
   console.log('[CANVA_OAUTH] Authorization callback received');
 
   if (error) {
-    const errorMsg = errorDescription ? `${error}: ${errorDescription}` : error;
+    let errorMsg = errorDescription ? `${error}: ${errorDescription}` : error;
+    if (errorMsg.toLowerCase().includes('allowed host') || errorMsg.toLowerCase().includes('invalid redirect uri')) {
+      errorMsg = 'Canva authorization host pending approval: The production domain (makkari-ai.vercel.app) needs to be allowlisted in Canva MCP developer settings.';
+    }
     console.error(`[CANVA_OAUTH] Authorization failed from provider: ${errorMsg}`);
     return NextResponse.redirect(
       new URL(`/settings?mcp=canva&status=error&error=${encodeURIComponent(errorMsg)}`, req.url)
     );
   }
+
 
   if (!code || !stateParam) {
     console.error('[CANVA_OAUTH] Missing authorization code or state parameter');

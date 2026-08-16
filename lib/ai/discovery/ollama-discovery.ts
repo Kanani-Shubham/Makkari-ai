@@ -6,11 +6,33 @@ export class OllamaModelDiscovery implements ProviderModelDiscovery {
   providerId = 'ollama' as const;
 
   async getWorkingBaseUrl(configuredUrl?: string): Promise<string | null> {
-    const urlsToTry = configuredUrl ? [configuredUrl, ...OLLAMA_DEFAULT_URLS] : OLLAMA_DEFAULT_URLS;
-    for (const url of urlsToTry) {
+    // If a custom/remote URL is explicitly configured, always test it
+    if (configuredUrl && configuredUrl.trim() !== '') {
+      try {
+        const res = await fetch(`${configuredUrl.replace(/\/+$/, '')}/api/tags`, {
+          signal: AbortSignal.timeout(2000),
+        });
+        if (res.ok) return configuredUrl.replace(/\/+$/, '');
+      } catch {
+        return null;
+      }
+    }
+
+    // In cloud/Vercel serverless production without explicit remote endpoint,
+    // do not block on unreachable local loopback interfaces.
+    const isCloudServerless =
+      process.env.VERCEL === '1' ||
+      process.env.NEXT_PUBLIC_APP_URL?.includes('vercel.app');
+
+    if (isCloudServerless) {
+      return null;
+    }
+
+    // In local development, probe localhost:11434
+    for (const url of OLLAMA_DEFAULT_URLS) {
       try {
         const res = await fetch(`${url}/api/tags`, {
-          signal: AbortSignal.timeout(1500),
+          signal: AbortSignal.timeout(1000),
         });
         if (res.ok) return url;
       } catch {
@@ -19,6 +41,7 @@ export class OllamaModelDiscovery implements ProviderModelDiscovery {
     }
     return null;
   }
+
 
   async discoverModels(context: DiscoveryContext): Promise<DiscoveredModel[]> {
     try {
