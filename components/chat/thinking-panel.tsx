@@ -113,8 +113,9 @@ export function ThinkingPanel({
 
       {/* Expanded System Execution Events Body */}
       {isOpen && (
-        <div className="px-4 py-3 border-t border-[#E8E5E0] dark:border-[#2A2A2A] bg-white dark:bg-[#161616] space-y-2 text-[#4A4A4A] dark:text-[#B0B0B0] font-sans leading-relaxed animate-in fade-in duration-150">
-          {renderedEvents.length > 0 ? (
+        <div className="px-4 py-3 border-t border-[#E8E5E0] dark:border-[#2A2A2A] bg-white dark:bg-[#161616] space-y-2.5 text-[#4A4A4A] dark:text-[#B0B0B0] font-sans leading-relaxed animate-in fade-in duration-150">
+          {/* 1. Real Executed Events (Tool calls, MCP, Artifacts) */}
+          {renderedEvents.length > 0 && (
             <div className="space-y-2">
               {renderedEvents.map((evt, idx) => (
                 <div key={idx} className="flex items-center gap-2 text-xs">
@@ -146,21 +147,20 @@ export function ThinkingPanel({
                 </div>
               ))}
             </div>
+          )}
 
-          ) : summary && summary.trim().length > 0 ? (
-            <div className="flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-[#D97757] animate-pulse shrink-0" />
-              <span className="text-xs font-medium text-[#1A1A1A] dark:text-[#E5E5E5]">{summary}</span>
+          {/* 2. Real Model Reasoning / Thinking Text */}
+          {summary && summary.trim().length > 0 && (
+            <div className="text-xs text-[#555] dark:text-[#A0A0A0] whitespace-pre-wrap break-words leading-relaxed font-sans pl-1 border-l-2 border-[#D97757]/30">
+              {summary}
             </div>
-          ) : isThinkingOrExecuting ? (
-            <div className="flex items-center gap-2 text-[#6B6B6B] dark:text-[#9E9E9E]">
+          )}
+
+          {/* 3. Empty active thinking state */}
+          {!summary?.trim() && renderedEvents.length === 0 && isThinkingOrExecuting && (
+            <div className="flex items-center gap-2 text-xs text-[#6B6B6B] dark:text-[#9E9E9E]">
               <span className="w-1.5 h-1.5 rounded-full bg-[#D97757] animate-pulse shrink-0" />
-              <span>Analyzing request & planning response...</span>
-            </div>
-          ) : (
-            <div className="flex items-center gap-2 text-[#6B6B6B] dark:text-[#9E9E9E] text-[11px]">
-              <Check className="w-3 h-3 text-emerald-500 shrink-0" />
-              <span>Response generated</span>
+              <span>Thinking...</span>
             </div>
           )}
         </div>
@@ -168,4 +168,5 @@ export function ThinkingPanel({
     </div>
   );
 }
+
 

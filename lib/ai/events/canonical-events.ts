@@ -47,7 +47,9 @@ export type MakkariEvent =
   | { type: 'STREAM_START'; timestamp?: number }
   | { type: 'THINKING_START'; timestamp?: number }
   | { type: 'THINKING_STATUS'; status: string; timestamp?: number }
+  | { type: 'THINKING_DELTA'; delta: string; timestamp?: number }
   | { type: 'TEXT_DELTA'; delta: string; timestamp?: number }
+
   | { type: 'TOOL_CALL'; tool: string; callId: string; parameters: Record<string, unknown>; timestamp?: number }
   | { type: 'TOOL_PROGRESS'; callId: string; progress?: number; message?: string; timestamp?: number }
   | { type: 'TOOL_RESULT'; callId: string; result: ToolResultPayload; timestamp?: number }

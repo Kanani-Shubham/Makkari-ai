@@ -252,16 +252,18 @@ export class OpenRouterAdapter implements ProviderAdapter {
 
               // Normalized reasoning from OpenRouter
               if (delta?.reasoning || delta?.reasoning_content) {
+                const reasoningText = delta.reasoning || delta.reasoning_content;
                 yield {
                   type: 'reasoning',
                   event: {
                     visibility: 'summary',
-                    content: 'Analyzing request...',
-                    summary: 'Synthesizing response...',
+                    content: reasoningText,
+                    summary: reasoningText,
                     provider: 'openrouter',
                   },
                 };
               }
+
 
               // Text content
               if (delta?.content) {

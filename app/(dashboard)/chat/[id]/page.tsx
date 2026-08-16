@@ -173,6 +173,8 @@ export default function ChatDetailPage({ params }: PageProps) {
     });
 
     const startTime = Date.now();
+    let reasoningStartTime: number | null = null;
+    let reasoningEndTime: number | null = null;
     let accumulatedText = '';
     let accumulatedReasoning = '';
     const turnArtifacts: ConversationArtifact[] = [];
@@ -271,31 +273,23 @@ export default function ChatDetailPage({ params }: PageProps) {
                 const evt = chunk.event;
 
                 if (evt.type === 'STREAM_START') {
-                  if (accumulatedEvents.length === 0) {
-                    accumulatedEvents.push({
-                      type: 'status',
-                      text: 'Analyzing your request…',
-                      status: 'started',
-                      timestamp: Date.now(),
-                    });
-                  }
+                  // Stream initialization
                 } else if (evt.type === 'THINKING_START') {
-                  if (!accumulatedEvents.some((e) => e.text.includes('Analyzing'))) {
-                    accumulatedEvents.push({
-                      type: 'status',
-                      text: 'Analyzing your request…',
-                      status: 'started',
-                      timestamp: Date.now(),
-                    });
+                  if (reasoningStartTime === null) {
+                    reasoningStartTime = Date.now();
                   }
+                } else if (evt.type === 'THINKING_DELTA') {
+                  if (reasoningStartTime === null) {
+                    reasoningStartTime = Date.now();
+                  }
+                  accumulatedReasoning += evt.delta || '';
                 } else if (evt.type === 'THINKING_STATUS') {
-                  accumulatedReasoning = evt.status;
-                  accumulatedEvents.push({
-                    type: 'status',
-                    text: evt.status,
-                    status: 'started',
-                    timestamp: Date.now(),
-                  });
+                  if (reasoningStartTime === null) {
+                    reasoningStartTime = Date.now();
+                  }
+                  if (evt.status && evt.status.trim()) {
+                    accumulatedReasoning = evt.status;
+                  }
                 } else if (evt.type === 'TOOL_CALL') {
                   const toolName = evt.tool || 'tool';
                   accumulatedEvents.push({
@@ -348,6 +342,9 @@ export default function ChatDetailPage({ params }: PageProps) {
                     });
                   }
                 } else if (evt.type === 'TEXT_DELTA') {
+                  if (reasoningStartTime !== null && reasoningEndTime === null && accumulatedReasoning.trim()) {
+                    reasoningEndTime = Date.now();
+                  }
                   accumulatedText += evt.delta || '';
                 } else if (evt.type === 'ARTIFACT_CREATE' && evt.artifact) {
                   const artPayload = evt.artifact as ArtifactEventPayload;
@@ -417,20 +414,26 @@ export default function ChatDetailPage({ params }: PageProps) {
                 openArtifact(newArt);
               }
 
-              // Update the single canonical assistant message in-place
+              // Update the single canonical assistant message in-place with real reasoning
+              const hasReasoningData = accumulatedReasoning.trim().length > 0;
+              const hasEventsData = accumulatedEvents.length > 0;
+              const currentReasoningDuration = (reasoningStartTime && hasReasoningData)
+                ? ((reasoningEndTime || Date.now()) - reasoningStartTime)
+                : undefined;
+
               updateStreamingMessage(chatId, assistantMessageId, {
                 content: accumulatedText,
                 metadata: {
                   durationMs: Date.now() - startTime,
                   provider: activeProvider,
                   artifacts: turnArtifacts.length > 0 ? turnArtifacts : undefined,
-                  reasoning: (accumulatedReasoning || accumulatedEvents.length > 0)
+                  reasoning: (hasReasoningData || hasEventsData)
                     ? {
                         available: true,
-                        summary: accumulatedReasoning || 'Analyzing request…',
+                        summary: hasReasoningData ? accumulatedReasoning : undefined,
                         provider: activeProvider,
-                        events: accumulatedEvents,
-                        durationMs: Date.now() - startTime,
+                        events: hasEventsData ? accumulatedEvents : undefined,
+                        durationMs: currentReasoningDuration,
                       }
                     : undefined,
                 },
@@ -444,16 +447,22 @@ export default function ChatDetailPage({ params }: PageProps) {
 
       // Persist final assistant message authoritatively without adding a duplicate
       if (accumulatedText.trim().length > 0 || turnArtifacts.length > 0) {
+        const hasFinalReasoning = accumulatedReasoning.trim().length > 0;
+        const hasFinalEvents = accumulatedEvents.length > 0;
+        const finalReasoningDuration = (reasoningStartTime && hasFinalReasoning)
+          ? ((reasoningEndTime || Date.now()) - reasoningStartTime)
+          : undefined;
+
         const finalMetadata = {
           durationMs: Date.now() - startTime,
           provider: activeProvider,
           artifacts: turnArtifacts.length > 0 ? turnArtifacts : undefined,
-          reasoning: accumulatedEvents.length > 0 ? {
+          reasoning: (hasFinalReasoning || hasFinalEvents) ? {
             available: true,
-            summary: accumulatedReasoning || 'Response synthesized',
+            summary: hasFinalReasoning ? accumulatedReasoning : undefined,
             provider: activeProvider,
-            durationMs: Date.now() - startTime,
-            events: accumulatedEvents,
+            durationMs: finalReasoningDuration,
+            events: hasFinalEvents ? accumulatedEvents : undefined,
           } : undefined,
         };
 
@@ -466,6 +475,7 @@ export default function ChatDetailPage({ params }: PageProps) {
           assistantMessageId
         );
       }
+
 
     } catch (err: any) {
       if (controller.signal.aborted) {

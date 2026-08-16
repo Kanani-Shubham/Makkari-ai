@@ -316,8 +316,11 @@ export class OllamaAdapter implements LocalProviderAdapter {
     const decoder = new TextDecoder();
     let buffer = '';
 
+    let inThinkTag = false;
+
     try {
       while (true) {
+
         if (abortSignal?.aborted) {
           await reader.cancel();
           break;
@@ -335,25 +338,68 @@ export class OllamaAdapter implements LocalProviderAdapter {
           try {
             const parsed = JSON.parse(line);
 
-            // 1. Structured thinking field from Ollama API
-            if (parsed.message?.thinking) {
+            // 1. Structured thinking / reasoning_content field from Ollama API
+            const thinkingChunk = parsed.message?.thinking || parsed.message?.reasoning_content;
+            if (thinkingChunk) {
               yield {
                 type: 'reasoning',
                 event: {
                   visibility: 'summary',
-                  content: parsed.message.thinking,
-                  summary: parsed.message.thinking,
+                  content: thinkingChunk,
+                  summary: thinkingChunk,
                   provider: 'ollama',
                 },
               };
             }
 
-            // 2. Normal text response
+            // 2. Text response with inline <think> tag handling
             if (parsed.message?.content) {
-              yield {
-                type: 'text',
-                content: parsed.message.content,
-              };
+              let textChunk = parsed.message.content;
+
+              if (!inThinkTag && textChunk.includes('<think>')) {
+                inThinkTag = true;
+                const parts = textChunk.split('<think>');
+                if (parts[0]) {
+                  yield { type: 'text', content: parts[0] };
+                }
+                textChunk = parts.slice(1).join('<think>');
+              }
+
+              if (inThinkTag) {
+                if (textChunk.includes('</think>')) {
+                  inThinkTag = false;
+                  const parts = textChunk.split('</think>');
+                  if (parts[0]) {
+                    yield {
+                      type: 'reasoning',
+                      event: {
+                        visibility: 'summary',
+                        content: parts[0],
+                        summary: parts[0],
+                        provider: 'ollama',
+                      },
+                    };
+                  }
+                  if (parts[1]) {
+                    yield { type: 'text', content: parts[1] };
+                  }
+                } else {
+                  yield {
+                    type: 'reasoning',
+                    event: {
+                      visibility: 'summary',
+                      content: textChunk,
+                      summary: textChunk,
+                      provider: 'ollama',
+                    },
+                  };
+                }
+              } else if (textChunk) {
+                yield {
+                  type: 'text',
+                  content: textChunk,
+                };
+              }
             }
 
             if (parsed.done) {
@@ -367,6 +413,7 @@ export class OllamaAdapter implements LocalProviderAdapter {
       }
 
       yield { type: 'done' };
+
     } catch (err) {
       if (abortSignal?.aborted) return;
       yield {

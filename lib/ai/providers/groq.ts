@@ -226,16 +226,18 @@ export class GroqAdapter implements ProviderAdapter {
 
               // Reasoning delta
               if (delta?.reasoning_content || delta?.reasoning) {
+                const reasoningText = delta.reasoning_content || delta.reasoning;
                 yield {
                   type: 'reasoning',
                   event: {
                     visibility: 'summary',
-                    content: 'Analyzing request...',
-                    summary: 'Synthesizing response...',
+                    content: reasoningText,
+                    summary: reasoningText,
                     provider: 'groq',
                   },
                 };
               }
+
 
               // Text content delta
               if (delta?.content) {

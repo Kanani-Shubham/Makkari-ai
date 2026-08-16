@@ -166,6 +166,16 @@ export class QueryEngine {
             return;
           }
 
+          if (chunk.type === 'reasoning' && chunk.event) {
+            const reasoningChunk = chunk.event.content || chunk.event.summary || '';
+            if (reasoningChunk) {
+              eventBus.emit({
+                type: 'THINKING_DELTA',
+                delta: reasoningChunk,
+              });
+            }
+          }
+
           if (chunk.type === 'text' && chunk.content) {
             const parseRes = parser.processChunk(chunk.content);
 
@@ -179,6 +189,7 @@ export class QueryEngine {
             }
           }
         }
+
 
         // Flush parser after stream ends
         const flushed = parser.flush();

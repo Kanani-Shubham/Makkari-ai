@@ -110,8 +110,9 @@ export function MessageItem({ message, onRegenerate, onDelete, isStreaming = fal
             )}
           </div>
 
-          {/* Single Dynamic Claude-Style Thinking Panel */}
-          {(reasoningData?.available || (isStreaming && !message.content) || (reasoningData?.events && reasoningData.events.length > 0)) && (
+          {/* Dynamic Provider-Driven Thinking Panel */}
+          {((reasoningData?.available && (!!reasoningData?.summary?.trim() || (reasoningData?.events && reasoningData.events.length > 0))) ||
+            (isStreaming && !message.content && reasoningData?.available)) && (
             <ThinkingPanel
               summary={reasoningData?.summary}
               durationMs={reasoningData?.durationMs}
@@ -123,6 +124,7 @@ export function MessageItem({ message, onRegenerate, onDelete, isStreaming = fal
               events={reasoningData?.events}
             />
           )}
+
 
 
           {/* Associated Artifact Cards */}
