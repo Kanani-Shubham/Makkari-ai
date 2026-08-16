@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --background: #F7F6F3;
+    --card: #FFFFFF;
+    --card-foreground: #1A1A1A;
+    --popover: #FFFFFF;
+    --popover-foreground: #1A1A1A;
+    --primary: #D97757;
+    --primary-hover: #C66345;
+    --primary-foreground: #FFFFFF;
+    --secondary: #F0EEEA;
+    --secondary-foreground: #1A1A1A;
+    --accent: #A86A4A;
+    --accent-foreground: #FFFFFF;
+    --muted: #EFECE6;
+    --muted-foreground: #6B6B6B;
+    --border: #E8E5E0;
+    --input: #E8E5E0;
+    --ring: #D97757;
+    --radius: 0.75rem;
+  }
+
+  .dark {
+    --background: #121212;
+    --card: #1E1E1E;
+    --card-foreground: #E5E5E5;
+    --popover: #1E1E1E;
+    --popover-foreground: #E5E5E5;
+    --primary: #D97757;
+    --primary-hover: #E08567;
+    --primary-foreground: #FFFFFF;
+    --secondary: #2A2A2A;
+    --secondary-foreground: #E5E5E5;
+    --accent: #C47A56;
+    --accent-foreground: #FFFFFF;
+    --muted: #242424;
+    --muted-foreground: #9E9E9E;
+    --border: #2E2E2E;
+    --input: #2E2E2E;
+    --ring: #D97757;
+  }
+}
+
+body {
+  background-color: var(--background);
+  color: var(--card-foreground);
+  font-family: var(--font-sans), system-ui, -apple-system, sans-serif;
+  margin: 0;
+  padding: 0;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Typography Helpers */
+.font-sans {
+  font-family: var(--font-sans), system-ui, sans-serif;
+}
+
+.font-mono {
+  font-family: var(--font-mono), monospace;
+}
+
+.font-serif {
+  font-family: var(--font-serif), Georgia, serif;
+}
+
+/* Custom Scrollbar for Warm Minimal Aesthetics */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #E0DDD7;
+  border-radius: 9999px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: #333333;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #C4C0B8;
+}
+
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #444444;
+}
