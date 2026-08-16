@@ -55,10 +55,12 @@ export async function buildCanvaMcpAuthUrl(options: CanvaMcpAuthUrlOptions): Pro
   authUrl.searchParams.set('code_challenge_method', 's256');
   authUrl.searchParams.set('state', state);
 
-  console.log('[CANVA_OAUTH] Starting authorization');
-  console.log(`[CANVA_OAUTH] auth_method="CIMD" client_id_url="${clientId.substring(0, 30)}..."`);
-  console.log(`[CANVA_OAUTH] redirect_uri="${redirectUri}"`);
-  console.log('[CANVA_OAUTH] Authorization URL generated');
+  console.log('[CANVA_MCP] Starting OAuth');
+  console.log('[CANVA_MCP] OAuth transaction created');
+  console.log(`[CANVA_MCP] auth_method="CIMD" client_id_url="${clientId.substring(0, 30)}..."`);
+  console.log(`[CANVA_MCP] redirect_uri="${redirectUri}"`);
+  console.log('[CANVA_MCP] Authorization started');
+
 
   return {
     authUrl: authUrl.toString(),

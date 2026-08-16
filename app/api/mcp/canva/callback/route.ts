@@ -12,22 +12,21 @@ export async function GET(req: NextRequest) {
   const error = searchParams.get('error');
   const errorDescription = searchParams.get('error_description');
 
-  console.log('[CANVA_OAUTH] Authorization callback received');
+  console.log('[CANVA_MCP] Callback received');
 
   if (error) {
     let errorMsg = errorDescription ? `${error}: ${errorDescription}` : error;
     if (errorMsg.toLowerCase().includes('allowed host') || errorMsg.toLowerCase().includes('invalid redirect uri')) {
       errorMsg = 'Canva authorization host pending approval: The production domain (makkari-ai.vercel.app) needs to be allowlisted in Canva MCP developer settings.';
     }
-    console.error(`[CANVA_OAUTH] Authorization failed from provider: ${errorMsg}`);
+    console.error(`[CANVA_MCP] Authorization failed from provider: ${errorMsg}`);
     return NextResponse.redirect(
       new URL(`/settings?mcp=canva&status=error&error=${encodeURIComponent(errorMsg)}`, req.url)
     );
   }
 
-
   if (!code || !stateParam) {
-    console.error('[CANVA_OAUTH] Missing authorization code or state parameter');
+    console.error('[CANVA_MCP] Missing authorization code or state parameter');
     return NextResponse.redirect(
       new URL('/settings?mcp=canva&status=error&error=missing_code_or_state', req.url)
     );
@@ -37,14 +36,13 @@ export async function GET(req: NextRequest) {
   const transaction = await getAndConsumeOAuthTransaction(stateParam);
 
   if (!transaction) {
-    console.error('[CANVA_OAUTH] Invalid or expired OAuth state');
+    console.error('[CANVA_MCP] Invalid or expired OAuth state');
     return NextResponse.redirect(
       new URL('/settings?mcp=canva&status=error&error=state_expired', req.url)
     );
   }
 
   const returnUrlBase = transaction.origin || 'http://localhost:3000';
-
 
   try {
     const supabase = await createClient();
@@ -54,14 +52,14 @@ export async function GET(req: NextRequest) {
 
     // Verify session user matches OAuth transaction initiator
     if (user && user.id !== transaction.userId) {
-      console.error('[CANVA_OAUTH] User mismatch with OAuth transaction');
+      console.error('[CANVA_MCP] User mismatch with OAuth transaction');
       return NextResponse.redirect(
         new URL('/settings?mcp=canva&status=error&error=user_mismatch', returnUrlBase)
       );
     }
 
     const targetUserId = user?.id || transaction.userId;
-    console.log('[CANVA_OAUTH] OAuth transaction validated');
+    console.log('[CANVA_MCP] Transaction validated');
 
     const { clientId, clientSecret, redirectUri, codeVerifier, serverId } = transaction;
 
@@ -89,7 +87,7 @@ export async function GET(req: NextRequest) {
       }
 
       console.log(
-        `[CANVA_OAUTH] Token exchange: endpoint="https://mcp.canva.com/token" client_id_prefix="${clientId.substring(0, 4)}..." auth_method="${clientSecret ? 'client_secret_basic' : 'none_pkce'}"`
+        `[CANVA_MCP] Token exchange: endpoint="https://mcp.canva.com/token" client_id_prefix="${clientId.substring(0, 4)}..." auth_method="${clientSecret ? 'client_secret_basic' : 'none_pkce'}"`
       );
 
       // Primary attempt: Official Canva MCP Token Endpoint
@@ -101,7 +99,7 @@ export async function GET(req: NextRequest) {
 
       // If Basic Auth failed or was rejected, retry as pure Public Client with PKCE (no client_secret)
       if (!tokenRes.ok && clientSecret) {
-        console.warn('[CANVA_OAUTH] Retrying token exchange without client_secret (Public PKCE Client)');
+        console.warn('[CANVA_MCP] Retrying token exchange without client_secret (Public PKCE Client)');
         const publicHeaders: Record<string, string> = {
           'Content-Type': 'application/x-www-form-urlencoded',
         };
@@ -123,7 +121,7 @@ export async function GET(req: NextRequest) {
 
       if (!tokenRes.ok) {
         const errText = await tokenRes.text();
-        console.error(`[CANVA_OAUTH] Token exchange failed with status ${tokenRes.status}`);
+        console.error(`[CANVA_MCP] Token exchange failed with status ${tokenRes.status}`);
         return NextResponse.redirect(
           new URL(
             `/settings?mcp=canva&status=error&error=${encodeURIComponent(
@@ -136,8 +134,9 @@ export async function GET(req: NextRequest) {
 
       const tokenData = await tokenRes.json();
       accessToken = tokenData.access_token;
-      console.log('[CANVA_OAUTH] Authorization code exchanged');
+      console.log('[CANVA_MCP] Authorization code exchanged');
     }
+
 
 
     const canvaServer: MCPServerConfig = {
