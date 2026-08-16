@@ -335,9 +335,10 @@ function SettingsContent() {
           )}
         >
           {/* Search Box */}
-          <div className="relative">
+          <div className="relative" suppressHydrationWarning>
             <Search className="w-3.5 h-3.5 absolute left-3 top-3 text-[#6B6B6B] dark:text-[#9E9E9E]" />
             <input
+              suppressHydrationWarning
               type="text"
               placeholder="Search settings..."
               value={searchQuery}
@@ -346,13 +347,14 @@ function SettingsContent() {
             />
           </div>
 
-          <div className="space-y-0.5">
+          <div className="space-y-0.5" suppressHydrationWarning>
             {filteredNavItems.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
+                  suppressHydrationWarning
                   onClick={() => {
                     setActiveTab(item.id);
                     setMobileView('detail');
@@ -363,6 +365,7 @@ function SettingsContent() {
                       ? 'bg-[#EFECE6] dark:bg-[#2A2A2A] text-[#D97757] font-semibold shadow-2xs'
                       : 'text-[#1A1A1A] dark:text-[#E5E5E5] hover:bg-[#EFECE6]/50 dark:hover:bg-[#242424]'
                   )}
+
                 >
                   <div className="flex items-center gap-2.5">
                     <Icon

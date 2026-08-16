@@ -34,9 +34,13 @@ export function Header({ onToggleSidebar }: HeaderProps) {
     <>
       <CommandPalette isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
 
-      <header className="h-14 border-b border-[#E8E5E0] dark:border-[#2E2E2E] bg-[#F7F6F3]/90 dark:bg-[#121212]/90 backdrop-blur-xs flex items-center justify-between px-3 sm:px-6 sticky top-0 z-30 select-none">
-        <div className="flex items-center gap-3 min-w-0">
+      <header
+        suppressHydrationWarning
+        className="h-14 border-b border-[#E8E5E0] dark:border-[#2E2E2E] bg-[#F7F6F3]/90 dark:bg-[#121212]/90 backdrop-blur-xs flex items-center justify-between px-3 sm:px-6 sticky top-0 z-30 select-none"
+      >
+        <div className="flex items-center gap-3 min-w-0" suppressHydrationWarning>
           <button
+            suppressHydrationWarning
             onClick={onToggleSidebar}
             aria-label="Toggle Navigation Sidebar"
             className="p-2 rounded-2xl border border-[#E8E5E0] dark:border-[#2E2E2E] bg-white dark:bg-[#1E1E1E] text-[#6B6B6B] dark:text-[#9E9E9E] hover:text-[#1A1A1A] dark:hover:text-[#E5E5E5] hover:bg-[#EFECE6] dark:hover:bg-[#2A2A2A] md:hidden cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -55,9 +59,10 @@ export function Header({ onToggleSidebar }: HeaderProps) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2" suppressHydrationWarning>
           {/* Quick Search Button in Header */}
           <button
+            suppressHydrationWarning
             onClick={() => setIsSearchOpen(true)}
             aria-label="Search Chats (⌘K)"
             className="p-2 rounded-2xl border border-[#E8E5E0] dark:border-[#2E2E2E] bg-white dark:bg-[#1E1E1E] text-[#6B6B6B] dark:text-[#9E9E9E] hover:text-[#1A1A1A] dark:hover:text-[#E5E5E5] hover:bg-[#EFECE6] dark:hover:bg-[#2A2A2A] shadow-2xs transition-all cursor-pointer min-h-[44px] min-w-[44px] flex items-center justify-center"
@@ -67,6 +72,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
 
           {/* New Chat Button */}
           <button
+            suppressHydrationWarning
             onClick={handleNewChat}
             className="flex items-center gap-1.5 px-3 py-1.5 rounded-2xl border border-[#E8E5E0] dark:border-[#2E2E2E] bg-white dark:bg-[#1E1E1E] text-xs font-semibold text-[#1A1A1A] dark:text-[#E5E5E5] hover:bg-[#EFECE6] dark:hover:bg-[#2A2A2A] shadow-2xs transition-all cursor-pointer min-h-[44px]"
           >
@@ -79,6 +85,7 @@ export function Header({ onToggleSidebar }: HeaderProps) {
           </Link>
         </div>
       </header>
+
     </>
   );
 }

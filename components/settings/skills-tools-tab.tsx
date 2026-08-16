@@ -17,12 +17,14 @@ import {
   RefreshCw,
   Trash2,
   Lock,
+  Key,
   Layers,
   ChevronRight,
   X,
   FileText,
   Sliders,
 } from 'lucide-react';
+import { useSearchParams } from 'next/navigation';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -32,9 +34,12 @@ import { ToolDefinition } from '@/lib/ai/tools/types';
 import { MCPServerConfig } from '@/lib/ai/mcp/types';
 
 export function SkillsToolsTab() {
+  const searchParams = useSearchParams();
   const [subTab, setSubTab] = useState<'skills' | 'tools' | 'mcp'>('skills');
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
+  const [mcpErrorMsg, setMcpErrorMsg] = useState<string>('');
+
 
   // Skill state
   const [skills, setSkills] = useState<SkillDefinition[]>([]);
@@ -49,30 +54,72 @@ export function SkillsToolsTab() {
     {
       id: 'canva-mcp',
       name: 'Canva MCP',
-      url: 'https://mcp.canva.com/v1',
-      transport: 'http',
+      url: 'https://mcp.canva.com/mcp',
+      transport: 'streamable-http',
       status: 'disconnected',
-      allowedTools: ['create_design', 'generate_presentation', 'export_asset'],
+      toolCatalog: [],
     },
     {
       id: 'github-mcp',
       name: 'GitHub MCP',
       url: 'https://api.githubcopilot.com/mcp',
-      transport: 'http',
+      transport: 'streamable-http',
       status: 'disconnected',
-      allowedTools: ['search_repositories', 'get_file_contents', 'create_pull_request'],
+      toolCatalog: [],
     },
   ]);
+
   const [isAddingMcp, setIsAddingMcp] = useState(false);
   const [newMcpName, setNewMcpName] = useState('');
   const [newMcpUrl, setNewMcpUrl] = useState('');
   const [newMcpKey, setNewMcpKey] = useState('');
   const [mcpConnectingId, setMcpConnectingId] = useState<string | null>(null);
   const [mcpSuccessMsg, setMcpSuccessMsg] = useState('');
+  const [tokenInputs, setTokenInputs] = useState<Record<string, string>>({});
+  const [tokenInputVisible, setTokenInputVisible] = useState<Record<string, boolean>>({});
 
   // Initial load
   useEffect(() => {
+    // 1. Fetch real persisted MCP connections from backend
+    async function loadMcpConnections() {
+      try {
+        const res = await fetch('/api/mcp/connections');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.servers && Array.isArray(data.servers)) {
+            setMcpServers(data.servers);
+          }
+        }
+      } catch (err) {
+        console.error('Failed to load persisted MCP servers:', err);
+      }
+    }
+
+    loadMcpConnections();
+
+    // Handle OAuth Redirect Status Params
+    const mcpParam = searchParams?.get('mcp');
+    const statusParam = searchParams?.get('status');
+    const errorParam = searchParams?.get('error');
+    const toolsCount = searchParams?.get('tools');
+
+    if (mcpParam) {
+      setSubTab('mcp');
+      if (statusParam === 'connected') {
+        setMcpSuccessMsg(
+          `Successfully connected Canva MCP! (${toolsCount || 0} tools discovered)`
+        );
+      } else if (statusParam === 'error' && errorParam) {
+        setMcpErrorMsg(
+          errorParam.includes('invalid_request')
+            ? 'Canva rejected authorization request. Check PKCE, scopes, and redirect URI in Canva Developer Portal.'
+            : decodeURIComponent(errorParam)
+        );
+      }
+    }
+
     // 1. Load System Skills
+
     const defaultSkills: SkillDefinition[] = [
       {
         id: 'general',
@@ -303,48 +350,280 @@ export function SkillsToolsTab() {
     );
   };
 
-  // Connect / Test MCP Server
-  const handleConnectMcp = (serverId: string) => {
+  // Direct Canva OAuth Flow Launch
+  const handleLaunchCanvaOAuth = async (serverId: string) => {
     setMcpConnectingId(serverId);
-    setTimeout(() => {
-      setMcpServers((prev) =>
-        prev.map((s) => (s.id === serverId ? { ...s, status: 'connected', lastDiscoveredAt: new Date().toISOString() } : s))
-      );
+    try {
+      const authRes = await fetch('/api/mcp/auth/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId: 'canva-mcp' }),
+      });
+
+      const authData = await authRes.json();
+      if (authData.authUrl) {
+        window.location.href = authData.authUrl;
+        return;
+      }
+      alert(authData.message || 'Canva OAuth initiation failed');
+    } catch (err: any) {
+      console.error('Error starting Canva OAuth:', err);
+      alert('Failed to start Canva OAuth: ' + err.message);
+    } finally {
       setMcpConnectingId(null);
-      setMcpSuccessMsg('MCP Server connected and tool catalog cached successfully.');
-      setTimeout(() => setMcpSuccessMsg(''), 4000);
-    }, 1200);
+    }
+  };
+
+  // Connect MCP Server via Real Backend Handshake & OAuth
+  const handleConnectMcp = async (serverId: string, directKey?: string) => {
+    setMcpConnectingId(serverId);
+    setMcpSuccessMsg('');
+
+    try {
+      const server = mcpServers.find((s) => s.id === serverId);
+      const keyToUse = directKey || tokenInputs[serverId] || server?.apiKey;
+
+      const isCanvaServer =
+        serverId === 'canva-mcp' ||
+        serverId?.toLowerCase().includes('canva') ||
+        server?.name?.toLowerCase().includes('canva') ||
+        server?.url?.includes('canva.com');
+
+      const isGithubServer =
+        serverId === 'github-mcp' ||
+        serverId?.toLowerCase().includes('github') ||
+        server?.name?.toLowerCase().includes('github') ||
+        server?.url?.includes('githubcopilot.com');
+
+      // If connecting Canva or GitHub without any direct token, launch official OAuth
+      if (!keyToUse && isCanvaServer) {
+        await handleLaunchCanvaOAuth(serverId);
+        return;
+      }
+
+      if (!keyToUse && isGithubServer) {
+        try {
+          const authRes = await fetch('/api/mcp/auth/start', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ serverId: 'github-mcp' }),
+          });
+
+          const authData = await authRes.json();
+          if (authData.mode === 'oauth_redirect' && authData.authUrl) {
+            window.location.href = authData.authUrl;
+            return;
+          }
+
+          setTokenInputVisible((prev) => ({ ...prev, [serverId]: true }));
+          setMcpServers((prev) =>
+            prev.map((s) =>
+              s.id === serverId
+                ? {
+                    ...s,
+                    status: 'auth_required',
+                    errorMessage:
+                      authData.message ||
+                      `Authentication required for ${server?.name}. Enter your access token below.`,
+                  }
+                : s
+            )
+          );
+          setMcpConnectingId(null);
+          return;
+        } catch (authErr) {
+          console.error('[MCP_AUTH_START] Failed:', authErr);
+        }
+      }
+
+
+
+      const res = await fetch('/api/mcp/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serverId,
+          url: server?.url,
+          name: server?.name,
+          apiKey: keyToUse,
+        }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMcpServers((prev) =>
+          prev.map((s) =>
+            s.id === serverId
+              ? {
+                  ...s,
+                  status: 'connected',
+                  apiKey: keyToUse,
+                  toolCatalog: data.tools || [],
+                  lastDiscoveredAt: new Date().toISOString(),
+                  lastConnectedAt: new Date().toISOString(),
+                  errorMessage: undefined,
+                }
+              : s
+          )
+        );
+        setTokenInputVisible((prev) => ({ ...prev, [serverId]: false }));
+        setMcpSuccessMsg(
+          `Connected to ${server?.name || 'MCP Server'} (${data.tools?.length || 0} tools discovered).`
+        );
+        setTimeout(() => setMcpSuccessMsg(''), 4000);
+      } else {
+        const errMsg = data.error || 'Connection failed';
+        const isAuth =
+          data.status === 'auth_required' ||
+          res.status === 401 ||
+          errMsg.includes('Authentication required') ||
+          errMsg.includes('401');
+
+        if (isAuth) {
+          setTokenInputVisible((prev) => ({ ...prev, [serverId]: true }));
+        }
+
+        setMcpServers((prev) =>
+          prev.map((s) =>
+            s.id === serverId
+              ? {
+                  ...s,
+                  status: isAuth ? 'auth_required' : 'error',
+                  errorMessage: errMsg,
+                }
+              : s
+          )
+        );
+      }
+    } catch (err: any) {
+      setMcpServers((prev) =>
+        prev.map((s) =>
+          s.id === serverId
+            ? {
+                ...s,
+                status: 'error',
+                errorMessage: err.message || 'Network error',
+              }
+            : s
+        )
+      );
+    } finally {
+      setMcpConnectingId(null);
+    }
+  };
+
+
+  // Disconnect MCP Server
+  const handleDisconnectMcp = async (serverId: string) => {
+    try {
+      await fetch('/api/mcp/disconnect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId }),
+      });
+
+      setMcpServers((prev) =>
+        prev.map((s) => (s.id === serverId ? { ...s, status: 'disconnected', errorMessage: undefined } : s))
+      );
+    } catch (err) {
+      console.error('Error disconnecting MCP server:', err);
+    }
+  };
+
+  // Refresh Discovered Tools
+  const handleRefreshMcpTools = async (serverId: string) => {
+    setMcpConnectingId(serverId);
+    try {
+      const res = await fetch('/api/mcp/refresh', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ serverId }),
+      });
+      const data = await res.json();
+      if (res.ok && data.success) {
+        setMcpServers((prev) =>
+          prev.map((s) =>
+            s.id === serverId
+              ? {
+                  ...s,
+                  status: 'connected',
+                  toolCatalog: data.tools || [],
+                  lastDiscoveredAt: new Date().toISOString(),
+                  errorMessage: undefined,
+                }
+              : s
+          )
+        );
+        setMcpSuccessMsg(`Discovered ${data.tools?.length || 0} tools from ${data.server?.name || serverId}.`);
+        setTimeout(() => setMcpSuccessMsg(''), 4000);
+      }
+    } catch (err: any) {
+      console.error('Failed to refresh MCP tools:', err);
+    } finally {
+      setMcpConnectingId(null);
+    }
   };
 
   // Add Custom MCP Server
-  const handleAddCustomMcp = (e: React.FormEvent) => {
+  const handleAddCustomMcp = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newMcpName || !newMcpUrl) return;
 
-    const newServer: MCPServerConfig = {
-      id: newMcpName.toLowerCase().replace(/\s+/g, '-'),
-      name: newMcpName,
-      url: newMcpUrl,
-      transport: 'http',
-      apiKey: newMcpKey || undefined,
-      status: 'connected',
-      lastDiscoveredAt: new Date().toISOString(),
-      allowedTools: ['read_resource', 'execute_action'],
-    };
+    const serverId = newMcpName.toLowerCase().replace(/\s+/g, '-');
+    setMcpConnectingId(serverId);
 
-    setMcpServers((prev) => [...prev, newServer]);
-    setIsAddingMcp(false);
-    setNewMcpName('');
-    setNewMcpUrl('');
-    setNewMcpKey('');
-    setMcpSuccessMsg(`Added "${newServer.name}" to MCP connections.`);
-    setTimeout(() => setMcpSuccessMsg(''), 4000);
+    try {
+      const res = await fetch('/api/mcp/connect', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          serverId,
+          name: newMcpName,
+          url: newMcpUrl,
+          apiKey: newMcpKey || undefined,
+          transport: 'streamable-http',
+        }),
+      });
+
+      const data = await res.json();
+
+      const newServer: MCPServerConfig = {
+        id: serverId,
+        name: newMcpName,
+        url: newMcpUrl,
+        transport: 'streamable-http',
+        apiKey: newMcpKey || undefined,
+        status: res.ok && data.success ? 'connected' : 'error',
+        lastDiscoveredAt: new Date().toISOString(),
+        toolCatalog: data.tools || [],
+        errorMessage: data.error,
+      };
+
+      setMcpServers((prev) => [...prev.filter((s) => s.id !== serverId), newServer]);
+      setIsAddingMcp(false);
+      setNewMcpName('');
+      setNewMcpUrl('');
+      setNewMcpKey('');
+
+      if (res.ok && data.success) {
+        setMcpSuccessMsg(`Added and connected "${newServer.name}".`);
+      } else {
+        setMcpSuccessMsg(`Saved "${newServer.name}" (Status: ${newServer.errorMessage || 'Disconnected'}).`);
+      }
+      setTimeout(() => setMcpSuccessMsg(''), 4000);
+    } catch (err: any) {
+      console.error('Error adding MCP server:', err);
+    } finally {
+      setMcpConnectingId(null);
+    }
   };
 
   // Remove MCP Server
   const handleRemoveMcp = (serverId: string) => {
+    handleDisconnectMcp(serverId);
     setMcpServers((prev) => prev.filter((s) => s.id !== serverId));
   };
+
 
   // Filtered lists
   const filteredSkills = skills.filter((s) => {
@@ -646,81 +925,265 @@ export function SkillsToolsTab() {
             </span>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
-            {mcpServers.map((server) => (
-              <div
-                key={server.id}
-                className="p-4 rounded-2xl bg-white dark:bg-[#242424] border border-[#E8E5E0] dark:border-[#2E2E2E] flex flex-col justify-between gap-3"
+          {/* Success Banner */}
+          {mcpSuccessMsg && (
+            <div className="p-3 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-900/50 flex items-center justify-between text-xs text-emerald-800 dark:text-emerald-300">
+              <div className="flex items-center gap-2">
+                <Check className="w-4 h-4 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>{mcpSuccessMsg}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMcpSuccessMsg('')}
+                className="text-emerald-700 dark:text-emerald-400 hover:opacity-75 cursor-pointer"
               >
-                <div>
-                  <div className="flex items-start justify-between gap-2">
-                    <div>
-                      <h4 className="text-xs font-semibold text-[#1A1A1A] dark:text-[#E5E5E5] flex items-center gap-2">
-                        <span>{server.name}</span>
-                        {server.status === 'connected' ? (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
-                            <Check className="w-3 h-3" />
-                            <span>Connected</span>
-                          </span>
-                        ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#EFECE6] dark:bg-[#1E1E1E] text-[#6B6B6B] dark:text-[#9E9E9E]">
-                            Disconnected
-                          </span>
-                        )}
-                      </h4>
-                      <span className="text-[10px] text-[#6B6B6B] dark:text-[#9E9E9E] font-mono block mt-0.5">
-                        {server.url}
-                      </span>
-                    </div>
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
-                    <button
-                      type="button"
-                      onClick={() => handleRemoveMcp(server.id)}
-                      className="p-1 rounded-lg text-[#6B6B6B] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors"
-                      title="Remove Connection"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
+          {/* Error Banner */}
+          {mcpErrorMsg && (
+            <div className="p-3 rounded-2xl bg-red-50 dark:bg-red-950/40 border border-red-200 dark:border-red-900/50 flex items-center justify-between text-xs text-red-800 dark:text-red-300">
+              <div className="flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-red-600 dark:text-red-400 shrink-0" />
+                <span>{mcpErrorMsg}</span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setMcpErrorMsg('')}
+                className="text-red-700 dark:text-red-400 hover:opacity-75 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
 
-                  {/* Discovered Tools List */}
-                  {server.allowedTools && (
-                    <div className="mt-3">
-                      <span className="text-[10px] font-semibold text-[#6B6B6B] dark:text-[#9E9E9E] block mb-1">
-                        Discovered Tools ({server.allowedTools.length}):
-                      </span>
-                      <div className="flex flex-wrap gap-1">
-                        {server.allowedTools.map((t) => (
-                          <span
-                            key={t}
-                            className="text-[10px] px-2 py-0.5 rounded-lg bg-[#F7F6F3] dark:bg-[#181818] text-[#1A1A1A] dark:text-[#E5E5E5] font-mono"
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+
+            {mcpServers.map((server) => {
+              const discoveredTools = server.toolCatalog || [];
+              const hasTools = discoveredTools.length > 0;
+              const isCanva =
+                server.id === 'canva-mcp' ||
+                server.name.toLowerCase().includes('canva') ||
+                server.url.includes('canva.com');
+              const isAuthReq = server.status === 'auth_required' || server.status === 'auth_expired';
+              const showTokenInput = tokenInputVisible[server.id] && !isCanva;
+              const isConnecting = mcpConnectingId === server.id;
+
+              return (
+                <div
+                  key={server.id}
+                  className="p-4 rounded-2xl bg-white dark:bg-[#242424] border border-[#E8E5E0] dark:border-[#2E2E2E] flex flex-col justify-between gap-3 shadow-xs"
+                >
+                  <div>
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <h4 className="text-xs font-semibold text-[#1A1A1A] dark:text-[#E5E5E5] flex items-center gap-2 flex-wrap">
+                          <span>{server.name}</span>
+                          {server.status === 'connected' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 font-medium flex items-center gap-1">
+                              <Check className="w-3 h-3" />
+                              <span>Connected</span>
+                            </span>
+                          ) : server.status === 'authorizing' || server.status === 'connecting' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 dark:bg-blue-950 text-blue-700 dark:text-blue-300 font-medium flex items-center gap-1">
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              <span>Connecting...</span>
+                            </span>
+                          ) : server.status === 'auth_required' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1">
+                              <Lock className="w-3 h-3" />
+                              <span>Auth Required</span>
+                            </span>
+                          ) : server.status === 'auth_expired' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-700 dark:text-amber-300 font-medium flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              <span>Auth Expired</span>
+                            </span>
+                          ) : server.status === 'error' ? (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-red-100 dark:bg-red-950 text-red-700 dark:text-red-300 font-medium flex items-center gap-1">
+                              <AlertCircle className="w-3 h-3" />
+                              <span>Error</span>
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#EFECE6] dark:bg-[#1E1E1E] text-[#6B6B6B] dark:text-[#9E9E9E]">
+                              Disconnected
+                            </span>
+                          )}
+                        </h4>
+                        <p className="text-[11px] text-[#6B6B6B] dark:text-[#9E9E9E] mt-1">
+                          {isCanva
+                            ? 'Create, edit, search and export your Canva designs directly from Makkari.'
+                            : 'Connect streamable HTTP MCP servers. Tools are cached and selectively routed.'}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1">
+                        {!isCanva && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setTokenInputVisible((prev) => ({
+                                ...prev,
+                                [server.id]: !prev[server.id],
+                              }))
+                            }
+                            className="p-1 rounded-lg text-[#6B6B6B] hover:text-[#D97757] hover:bg-[#F7F6F3] dark:hover:bg-[#1E1E1E] transition-colors cursor-pointer"
+                            title="Enter Token / Key"
                           >
-                            {t}
-                          </span>
-                        ))}
+                            <Key className="w-3.5 h-3.5" />
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveMcp(server.id)}
+                          className="p-1 rounded-lg text-[#6B6B6B] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-colors cursor-pointer"
+                          title="Remove Server"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </div>
                     </div>
-                  )}
-                </div>
 
-                <div className="pt-2 border-t border-[#E8E5E0] dark:border-[#2E2E2E] flex items-center justify-between">
-                  <span className="text-[10px] text-[#6B6B6B] dark:text-[#9E9E9E]">
-                    {server.lastDiscoveredAt ? `Cached: ${new Date(server.lastDiscoveredAt).toLocaleTimeString()}` : 'Not tested'}
-                  </span>
+                    {/* Auth Guidance or Error Banner */}
+                    {server.errorMessage && (
+                      <div
+                        className={cn(
+                          'mt-2.5 p-2 rounded-xl border text-[11px] flex items-start gap-1.5',
+                          isAuthReq
+                            ? 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-900/50 text-amber-800 dark:text-amber-300'
+                            : 'bg-red-50 dark:bg-red-950/40 border-red-200 dark:border-red-900/50 text-red-700 dark:text-red-300'
+                        )}
+                      >
+                        <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        <span className="break-all">{server.errorMessage}</span>
+                      </div>
+                    )}
 
-                  <button
-                    type="button"
-                    onClick={() => handleConnectMcp(server.id)}
-                    disabled={mcpConnectingId === server.id}
-                    className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#D97757]/10 text-[#D97757] hover:bg-[#D97757]/20 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
-                  >
-                    <RefreshCw className={cn('w-3 h-3', mcpConnectingId === server.id && 'animate-spin')} />
-                    <span>{server.status === 'connected' ? 'Refresh Tools' : 'Connect'}</span>
-                  </button>
+                    {/* Manual Token Input (Only for custom/other servers) */}
+                    {showTokenInput && server.status !== 'connected' && (
+                      <div className="mt-2.5 p-2.5 rounded-xl bg-[#F7F6F3] dark:bg-[#181818] border border-[#E8E5E0] dark:border-[#2E2E2E] space-y-1.5">
+                        <label className="text-[10px] font-semibold text-[#6B6B6B] dark:text-[#9E9E9E] block">
+                          Personal Access Token / API Key:
+                        </label>
+                        <div className="flex gap-2">
+                          <input
+                            type="password"
+                            placeholder="Paste token (e.g. ghp_...)"
+                            value={tokenInputs[server.id] || ''}
+                            onChange={(e) =>
+                              setTokenInputs((prev) => ({
+                                ...prev,
+                                [server.id]: e.target.value,
+                              }))
+                            }
+                            className="flex-1 px-2.5 py-1 text-xs rounded-lg border border-[#E8E5E0] dark:border-[#2E2E2E] bg-white dark:bg-[#242424] text-[#1A1A1A] dark:text-[#E5E5E5] font-mono focus:outline-hidden"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => handleConnectMcp(server.id, tokenInputs[server.id])}
+                            disabled={isConnecting}
+                            className="px-2.5 py-1 text-xs rounded-lg bg-[#D97757] text-white font-medium hover:bg-[#C26243] transition-colors cursor-pointer disabled:opacity-50"
+                          >
+                            Authenticate
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Discovered Tools List */}
+                    <div className="mt-3">
+                      <span className="text-[10px] font-semibold text-[#6B6B6B] dark:text-[#9E9E9E] block mb-1">
+                        Discovered Tools ({discoveredTools.length}):
+                      </span>
+                      {hasTools ? (
+                        <div className="flex flex-wrap gap-1">
+                          {discoveredTools.map((t) => (
+                            <span
+                              key={t.name}
+                              title={t.description}
+                              className="text-[10px] px-2 py-0.5 rounded-lg bg-[#F7F6F3] dark:bg-[#181818] text-[#1A1A1A] dark:text-[#E5E5E5] font-mono"
+                            >
+                              {t.name}
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="text-[10px] text-[#9E9E9E] italic">
+                          {server.status === 'connected'
+                            ? 'No tools discovered from endpoint.'
+                            : 'Connect to discover tools automatically.'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="pt-2 border-t border-[#E8E5E0] dark:border-[#2E2E2E] flex items-center justify-between gap-2">
+                    <span className="text-[10px] text-[#6B6B6B] dark:text-[#9E9E9E]">
+                      {server.status === 'connected'
+                        ? 'Canva account: Connected securely'
+                        : server.lastDiscoveredAt
+                        ? `Cached: ${new Date(server.lastDiscoveredAt).toLocaleTimeString()}`
+                        : '○ Not connected'}
+                    </span>
+
+                    <div className="flex items-center gap-1.5">
+                      {server.status === 'connected' ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => handleDisconnectMcp(server.id)}
+                            className="px-2.5 py-1 rounded-xl text-xs text-[#6B6B6B] hover:text-red-600 hover:bg-red-50 dark:hover:bg-red-950/30 transition-all cursor-pointer font-medium"
+                          >
+                            Disconnect
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleRefreshMcpTools(server.id)}
+                            disabled={isConnecting}
+                            className="flex items-center gap-1.5 px-3 py-1 rounded-xl bg-[#D97757]/10 text-[#D97757] hover:bg-[#D97757]/20 text-xs font-semibold transition-all cursor-pointer disabled:opacity-50"
+                          >
+                            <RefreshCw
+                              className={cn('w-3 h-3', isConnecting && 'animate-spin')}
+                            />
+                            <span>Refresh Tools</span>
+                          </button>
+                        </>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            isCanva
+                              ? handleLaunchCanvaOAuth(server.id)
+                              : handleConnectMcp(server.id)
+                          }
+                          disabled={isConnecting}
+                          className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-[#D97757] hover:bg-[#C26243] text-white text-xs font-semibold shadow-xs transition-all cursor-pointer disabled:opacity-50"
+                        >
+                          {isConnecting ? (
+                            <>
+                              <RefreshCw className="w-3 h-3 animate-spin" />
+                              <span>Connecting to Canva...</span>
+                            </>
+                          ) : (
+                            <>
+                              <ExternalLink className="w-3.5 h-3.5" />
+                              <span>{isCanva ? 'Connect Canva' : 'Connect Account'}</span>
+                            </>
+                          )}
+                        </button>
+                      )}
+                    </div>
+                  </div>
                 </div>
-              </div>
-            ))}
+              );
+            })}
+
+
           </div>
+
         </div>
       )}
 

@@ -102,6 +102,7 @@ interface ChatStoreState {
   togglePinChat: (chatId: string) => Promise<void>;
   deleteChat: (chatId: string) => Promise<void>;
   renameChat: (chatId: string, newTitle: string) => Promise<void>;
+  updateChatModel: (chatId: string, providerId: ProviderId, modelId: string) => Promise<void>;
   setIsStreaming: (streaming: boolean) => void;
   setStreamingContent: (content: string) => void;
   setStreamingReasoning: (reasoning: string) => void;
@@ -109,6 +110,7 @@ interface ChatStoreState {
   abortCurrentStream: () => void;
   setActiveAbortController: (ctrl: AbortController | null) => void;
 }
+
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
   activeChatId: null,
@@ -491,6 +493,28 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
       });
     } catch (err) {
       console.error('[CHAT_STORE] Failed to rename chat in Supabase:', err);
+    }
+  },
+
+  updateChatModel: async (chatId: string, providerId: ProviderId, modelId: string) => {
+    set((state) => ({
+      chats: state.chats.map((c) =>
+        c.id === chatId ? { ...c, providerId, modelId, updatedAt: new Date().toISOString() } : c
+      ),
+    }));
+
+    try {
+      await fetch('/api/chats', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: chatId,
+          providerId,
+          modelId,
+        }),
+      });
+    } catch (err) {
+      console.error('[CHAT_STORE] Failed to update chat model in Supabase:', err);
     }
   },
 

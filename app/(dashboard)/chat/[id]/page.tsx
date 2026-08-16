@@ -2,17 +2,21 @@
 
 import React, { useEffect, useRef, useState, use } from 'react';
 import { useChatStore, ChatThread } from '@/lib/store/use-chat-store';
+import { useModelStore } from '@/lib/store/use-model-store';
 import { useArtifactStore } from '@/lib/store/use-artifact-store';
 import { MessageItem } from '@/components/chat/message-item';
 import { ChatBox } from '@/components/chat/chat-box';
 import { ArtifactWorkspace } from '@/components/artifacts/artifact-workspace';
 import { ArtifactCard } from '@/components/artifacts/artifact-card';
 import { ConversationArtifact, ArtifactFile } from '@/lib/artifacts/types';
-import { ChatAttachment, ChatMessage } from '@/lib/ai/types';
+import { ChatAttachment, ChatMessage, ProviderId } from '@/lib/ai/types';
 import { ArrowLeft, Layers, Zap, AlertCircle, RefreshCw, Loader2, ArrowDown } from 'lucide-react';
 import Link from 'next/link';
-import { cn } from '@/lib/utils';
+import { ThinkingEventItem } from '@/components/chat/thinking-panel';
 import { ArtifactEventPayload } from '@/lib/ai/events/canonical-events';
+import { cn } from '@/lib/utils';
+
+
 
 interface PageProps {
   params: Promise<{ id: string }>;
@@ -30,14 +34,19 @@ export default function ChatDetailPage({ params }: PageProps) {
     deleteMessage,
     isStreaming,
     setIsStreaming,
+    updateChatModel,
   } = useChatStore();
+
+  const { providers, selectedProvider, selectedModel, setSelectedProvider, setSelectedModel } = useModelStore();
 
   const { artifacts, isWorkspaceOpen, openArtifact, addOrUpdateArtifact } = useArtifactStore();
 
   const [streamingContent, setStreamingContent] = useState('');
   const [streamingReasoning, setStreamingReasoning] = useState('');
+  const [streamingEvents, setStreamingEvents] = useState<ThinkingEventItem[]>([]);
   const [streamingArtifacts, setStreamingArtifacts] = useState<ConversationArtifact[]>([]);
   const [streamError, setStreamError] = useState<{ message: string; code?: string; retryable?: boolean } | null>(null);
+
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
   const [showNewResponseButton, setShowNewResponseButton] = useState(false);
 
@@ -48,8 +57,19 @@ export default function ChatDetailPage({ params }: PageProps) {
   const isNearBottomRef = useRef(true);
 
   const currentChat = chats.find((c: ChatThread) => c.id === chatId);
-  const selectedProvider = currentChat?.providerId || 'groq';
-  const selectedModel = currentChat?.modelId || 'openai/gpt-oss-120b';
+  const activeProvider = selectedProvider || currentChat?.providerId || 'gemini';
+  const activeModel = selectedModel || currentChat?.modelId || 'gemini-2.5-flash';
+
+  // Sync model store when opening an existing chat with custom model
+  useEffect(() => {
+    if (currentChat?.providerId && currentChat?.modelId) {
+      if (currentChat.providerId !== selectedProvider || currentChat.modelId !== selectedModel) {
+        setSelectedProvider(currentChat.providerId);
+        setSelectedModel(currentChat.modelId);
+      }
+    }
+  }, [currentChat?.id]);
+
 
   const chatMessages: ChatMessage[] = messages[chatId] || [];
   const chatArtifacts: ConversationArtifact[] = artifacts[chatId] || [];
@@ -115,29 +135,65 @@ export default function ChatDetailPage({ params }: PageProps) {
     }
   }, [chatMessages.length, isStreaming, streamingContent, streamError]);
 
-  const executeStream = async (userContent: string, attachments?: ChatAttachment[]) => {
+  const executeStream = async (
+    userContent?: string,
+    attachments?: ChatAttachment[],
+    explicitHistory?: ChatMessage[]
+  ) => {
     if (isStreaming) return;
+
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
 
     setIsStreaming(true);
     setStreamingContent('');
     setStreamingReasoning('');
+    setStreamingEvents([]);
     setStreamingArtifacts([]);
     setStreamError(null);
     setShowNewResponseButton(false);
-
-    const controller = new AbortController();
-    abortControllerRef.current = controller;
 
     const startTime = Date.now();
     let accumulatedText = '';
     let accumulatedReasoning = '';
     const turnArtifacts: ConversationArtifact[] = [];
+    const accumulatedEvents: ThinkingEventItem[] = [];
 
     try {
-      const history = (messages[chatId] || []).map((m: ChatMessage) => ({
-        role: m.role,
-        content: m.content,
-      }));
+      // 1. Build deterministic message history
+      let historyToUse: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
+
+      if (explicitHistory && explicitHistory.length > 0) {
+        historyToUse = explicitHistory.map((m) => ({ role: m.role as any, content: m.content }));
+      } else {
+        const currentList = messages[chatId] || [];
+        historyToUse = currentList.map((m) => ({ role: m.role as any, content: m.content }));
+      }
+
+      if (userContent && userContent.trim()) {
+        const last = historyToUse[historyToUse.length - 1];
+        if (!last || last.role !== 'user' || last.content !== userContent) {
+          historyToUse.push({ role: 'user', content: userContent });
+        }
+      }
+
+      if (historyToUse.length === 0) {
+        console.warn('[CHAT_RUNTIME] Skip streaming: Message history is empty.');
+        setIsStreaming(false);
+        return;
+      }
+
+      const turnId = crypto.randomUUID();
+      const lastMsg = historyToUse[historyToUse.length - 1];
+      const preview = (lastMsg?.content || '').slice(0, 50).replace(/\n/g, ' ');
+
+      console.log(
+        `[CHAT_RUNTIME] chatId=${chatId} turnId=${turnId} provider=${activeProvider} model=${activeModel} messageCount=${historyToUse.length} lastRole=${lastMsg?.role} preview="${preview}"`
+      );
 
       const response = await fetch('/api/chat/stream', {
         method: 'POST',
@@ -145,9 +201,9 @@ export default function ChatDetailPage({ params }: PageProps) {
         signal: controller.signal,
         body: JSON.stringify({
           chatId,
-          messages: history,
-          providerId: selectedProvider,
-          modelId: selectedModel,
+          messages: historyToUse,
+          providerId: activeProvider,
+          modelId: activeModel,
           attachments,
         }),
       });
@@ -195,9 +251,90 @@ export default function ChatDetailPage({ params }: PageProps) {
               if (chunk.protocolVersion === 1 && chunk.event) {
                 const evt = chunk.event;
 
-                if (evt.type === 'THINKING_STATUS') {
+                if (evt.type === 'STREAM_START') {
+                  if (accumulatedEvents.length === 0) {
+                    accumulatedEvents.push({
+                      type: 'status',
+                      text: 'Analyzing your request…',
+                      status: 'started',
+                      timestamp: Date.now(),
+                    });
+                    setStreamingEvents([...accumulatedEvents]);
+                  }
+                } else if (evt.type === 'THINKING_START') {
+                  if (!accumulatedEvents.some((e) => e.text.includes('Analyzing'))) {
+                    accumulatedEvents.push({
+                      type: 'status',
+                      text: 'Analyzing your request…',
+                      status: 'started',
+                      timestamp: Date.now(),
+                    });
+                    setStreamingEvents([...accumulatedEvents]);
+                  }
+                } else if (evt.type === 'THINKING_STATUS') {
                   accumulatedReasoning = evt.status;
                   setStreamingReasoning(accumulatedReasoning);
+                  accumulatedEvents.push({
+                    type: 'status',
+                    text: evt.status,
+                    status: 'started',
+                    timestamp: Date.now(),
+                  });
+                  setStreamingEvents([...accumulatedEvents]);
+                } else if (evt.type === 'TOOL_CALL') {
+                  const toolName = evt.tool || 'tool';
+                  accumulatedEvents.push({
+                    type: 'tool',
+                    name: toolName,
+                    text: `Using ${toolName}…`,
+                    status: 'started',
+                    timestamp: Date.now(),
+                  });
+                  setStreamingEvents([...accumulatedEvents]);
+                } else if (evt.type === 'TOOL_PROGRESS') {
+                  const progressMsg = evt.message || `Running ${evt.tool || 'tool'}…`;
+                  const lastToolIdx = [...accumulatedEvents]
+                    .reverse()
+                    .findIndex((e) => e.type === 'tool' && e.status === 'started');
+                  if (lastToolIdx !== -1) {
+                    const actualIdx = accumulatedEvents.length - 1 - lastToolIdx;
+                    accumulatedEvents[actualIdx] = {
+                      ...accumulatedEvents[actualIdx],
+                      text: progressMsg,
+                    };
+                  } else {
+                    accumulatedEvents.push({
+                      type: 'tool',
+                      name: evt.tool,
+                      text: progressMsg,
+                      status: 'started',
+                      timestamp: Date.now(),
+                    });
+                  }
+                  setStreamingEvents([...accumulatedEvents]);
+                } else if (evt.type === 'TOOL_RESULT') {
+                  const resSuccess = evt.result?.success !== false;
+                  const toolName = evt.tool || 'Tool';
+                  const lastToolIdx = [...accumulatedEvents]
+                    .reverse()
+                    .findIndex((e) => e.type === 'tool' && e.status === 'started');
+                  if (lastToolIdx !== -1) {
+                    const actualIdx = accumulatedEvents.length - 1 - lastToolIdx;
+                    accumulatedEvents[actualIdx] = {
+                      ...accumulatedEvents[actualIdx],
+                      text: `${accumulatedEvents[actualIdx].name || toolName} ${resSuccess ? 'completed' : 'failed'}`,
+                      status: resSuccess ? 'completed' : 'failed',
+                    };
+                  } else {
+                    accumulatedEvents.push({
+                      type: 'tool',
+                      name: toolName,
+                      text: `${toolName} ${resSuccess ? 'completed' : 'failed'}`,
+                      status: resSuccess ? 'completed' : 'failed',
+                      timestamp: Date.now(),
+                    });
+                  }
+                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'TEXT_DELTA') {
                   accumulatedText += evt.delta || '';
                   setStreamingContent(accumulatedText);
@@ -233,11 +370,34 @@ export default function ChatDetailPage({ params }: PageProps) {
                   setStreamingArtifacts((prev) => [...prev.filter((a) => a.id !== newArt.id), newArt]);
                   addOrUpdateArtifact(chatId, newArt);
                   openArtifact(newArt);
+                  accumulatedEvents.push({
+                    type: 'artifact',
+                    text: `Created artifact: ${artPayload.title}`,
+                    status: 'completed',
+                    timestamp: Date.now(),
+                  });
+                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'CANCELLED') {
+                  accumulatedEvents.push({
+                    type: 'status',
+                    text: 'Generation stopped',
+                    status: 'failed',
+                    timestamp: Date.now(),
+                  });
+                  setStreamingEvents([...accumulatedEvents]);
                   setStreamingReasoning('Generation stopped');
                   break;
                 } else if (evt.type === 'ERROR') {
+                  accumulatedEvents.push({
+                    type: 'status',
+                    text: evt.message || 'Generation interrupted',
+                    status: 'failed',
+                    timestamp: Date.now(),
+                  });
+                  setStreamingEvents([...accumulatedEvents]);
                   setStreamError({ message: evt.message, code: evt.code, retryable: evt.retryable });
+                  break;
+                } else if (evt.type === 'DONE') {
                   break;
                 }
               }
@@ -264,14 +424,22 @@ export default function ChatDetailPage({ params }: PageProps) {
         await addMessage(chatId, {
           role: 'assistant',
           content: accumulatedText,
-          model_id: selectedModel,
+          model_id: activeModel,
           metadata: {
             durationMs: Date.now() - startTime,
-            provider: selectedProvider,
+            provider: activeProvider,
             artifacts: turnArtifacts.length > 0 ? turnArtifacts : undefined,
+            reasoning: accumulatedEvents.length > 0 ? {
+              available: true,
+              summary: accumulatedReasoning || 'Response synthesized',
+              provider: activeProvider,
+              durationMs: Date.now() - startTime,
+              events: accumulatedEvents,
+            } : undefined,
           },
         });
       }
+
     } catch (err: any) {
       if (controller.signal.aborted) {
         console.log('[AI_STREAM] Generation cancelled by user.');
@@ -290,14 +458,20 @@ export default function ChatDetailPage({ params }: PageProps) {
   const handleSendMessage = async (content: string, attachments?: ChatAttachment[]) => {
     if (!content.trim() && (!attachments || attachments.length === 0)) return;
 
-    await addMessage(chatId, {
+    const userMsg: ChatMessage = {
       role: 'user',
       content,
       attachments,
-    });
+    };
 
-    executeStream(content, attachments);
+    const currentMsgs = messages[chatId] || [];
+    const nextHistory = [...currentMsgs, userMsg];
+
+    // Optimistically add and stream immediately without race condition
+    addMessage(chatId, userMsg);
+    executeStream(content, attachments, nextHistory);
   };
+
 
   const handleStopStream = () => {
     if (abortControllerRef.current) {
@@ -343,10 +517,11 @@ export default function ChatDetailPage({ params }: PageProps) {
 
             <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#EFECE6] dark:bg-[#2A2A2A] text-[11px] font-mono text-[#6B6B6B] dark:text-[#9E9E9E]">
               <Zap className="w-3 h-3 text-[#D97757]" />
-              <span className="capitalize">{selectedProvider}</span>
+              <span className="capitalize">{activeProvider}</span>
               <span>/</span>
-              <span className="truncate max-w-[120px]">{selectedModel}</span>
+              <span className="truncate max-w-[140px]">{activeModel}</span>
             </div>
+
           </div>
         </div>
 
@@ -392,13 +567,15 @@ export default function ChatDetailPage({ params }: PageProps) {
                   content: streamingContent,
                   model_id: selectedModel,
                   metadata: {
-                    reasoning: streamingReasoning
+                    reasoning: (streamingReasoning || streamingEvents.length > 0)
                       ? {
                           available: true,
-                          summary: streamingReasoning,
+                          summary: streamingReasoning || 'Analyzing request…',
                           provider: selectedProvider,
+                          events: streamingEvents,
                         }
                       : undefined,
+
                     artifacts: streamingArtifacts.length > 0 ? streamingArtifacts : undefined,
                   },
                 }}
@@ -411,29 +588,67 @@ export default function ChatDetailPage({ params }: PageProps) {
 
             {/* Error Banner */}
             {streamError && (
-              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 flex items-start gap-3 text-xs">
-                <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                <div className="flex-1 min-w-0">
-                  <div className="font-semibold">{streamError.message}</div>
-                  {streamError.code && (
-                    <div className="font-mono text-[10px] opacity-75 mt-0.5">Code: {streamError.code}</div>
+              <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs space-y-2">
+                <div className="flex items-start gap-3">
+                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                  <div className="flex-1 min-w-0">
+                    <div className="font-semibold text-sm">
+                      {streamError.code === 'MODEL_NOT_AVAILABLE' ? 'Model Unavailable' : 'Generation Interrupted'}
+                    </div>
+                    <div className="mt-0.5 opacity-90">{streamError.message}</div>
+                    {streamError.code && (
+                      <div className="font-mono text-[10px] opacity-60 mt-0.5">Code: {streamError.code}</div>
+                    )}
+                  </div>
+                  {streamError.retryable && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const lastUserMsg = [...chatMessages].reverse().find((m: ChatMessage) => m.role === 'user');
+                        if (lastUserMsg) executeStream(lastUserMsg.content, lastUserMsg.attachments);
+                      }}
+                      className="flex items-center gap-1 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-medium cursor-pointer shadow-xs transition-colors shrink-0"
+                    >
+                      <RefreshCw className="w-3 h-3" />
+                      <span>Retry</span>
+                    </button>
                   )}
                 </div>
-                {streamError.retryable && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const lastUserMsg = [...chatMessages].reverse().find((m: ChatMessage) => m.role === 'user');
-                      if (lastUserMsg) executeStream(lastUserMsg.content, lastUserMsg.attachments);
-                    }}
-                    className="flex items-center gap-1 px-3 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-xl font-medium cursor-pointer shadow-xs transition-colors"
-                  >
-                    <RefreshCw className="w-3 h-3" />
-                    <span>Retry</span>
-                  </button>
+
+                {/* Available alternative model chips when model is unavailable */}
+                {streamError.code === 'MODEL_NOT_AVAILABLE' && (
+                  <div className="pt-2 border-t border-amber-500/20">
+                    <div className="text-[11px] font-medium text-amber-800 dark:text-amber-300 mb-1.5">
+                      Choose an available {providers[activeProvider]?.name || activeProvider} model:
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {(providers[activeProvider]?.models || [])
+                        .filter((m: any) => m.id !== activeModel && m.availability !== 'unavailable')
+                        .map((m: any) => (
+                          <button
+                            key={m.id}
+
+                            type="button"
+                            onClick={() => {
+                              updateChatModel(chatId, activeProvider, m.id);
+                              setSelectedModel(m.id);
+                              setStreamError(null);
+                              const lastUserMsg = [...chatMessages].reverse().find((msg: ChatMessage) => msg.role === 'user');
+                              if (lastUserMsg) {
+                                executeStream(lastUserMsg.content, lastUserMsg.attachments);
+                              }
+                            }}
+                            className="px-2.5 py-1 rounded-lg bg-amber-600/15 hover:bg-amber-600/25 text-amber-900 dark:text-amber-100 font-medium border border-amber-500/30 transition-colors cursor-pointer text-[11px]"
+                          >
+                            {m.name || m.id}
+                          </button>
+                        ))}
+                    </div>
+                  </div>
                 )}
               </div>
             )}
+
           </div>
         </div>
 

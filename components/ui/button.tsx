@@ -29,6 +29,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
     return (
       <button
         ref={ref}
+        suppressHydrationWarning
         disabled={disabled}
         className={cn(baseStyles, variants[variant], sizes[size], className)}
         {...props}
@@ -36,6 +37,7 @@ export const Button = React.forwardRef<HTMLButtonElement, ButtonProps>(
         {children}
       </button>
     );
+
   }
 );
 Button.displayName = 'Button';

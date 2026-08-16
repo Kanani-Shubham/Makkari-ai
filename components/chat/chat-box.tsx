@@ -263,7 +263,8 @@ export function ChatBox({
             {isUploading ? <Loader2 className="w-4 h-4 animate-spin text-[#D97757]" /> : <Plus className="w-4 h-4" />}
           </button>
 
-          <ComposerModelPicker />
+          <ComposerModelPicker chatId={chatId} />
+
         </div>
 
         <button

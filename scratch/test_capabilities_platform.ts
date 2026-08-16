@@ -72,6 +72,7 @@ async function runCapabilitiesTestSuite() {
   const calcCall = {
     toolId: 'calculator',
     toolName: 'calculator',
+    callId: 'call_test_calc_001',
     arguments: { expression: '(15 * 4) + 10 / 2' },
   };
 

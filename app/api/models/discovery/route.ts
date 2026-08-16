@@ -53,25 +53,24 @@ export async function GET() {
       }
     }
 
-    // 3. Discover models & health for all cloud providers in parallel with independent timeouts
-    const cloudProviders: ProviderId[] = ['gemini', 'groq', 'openrouter', 'openai', 'anthropic'];
+    // 3. Discover models & health for all providers (cloud + Ollama) in parallel
+    const allProviders: ProviderId[] = ['gemini', 'groq', 'openrouter', 'openai', 'anthropic', 'ollama'];
     const modelsResult: Partial<Record<ProviderId, MakkariModel[]>> = {};
     const statusResult: Partial<Record<ProviderId, ProviderStatus>> = {};
 
     const startTime = Date.now();
 
-    const results = await Promise.allSettled(
-      cloudProviders.map(async (pId) => {
+    await Promise.allSettled(
+      allProviders.map(async (pId) => {
         const apiKey = providerKeys[pId];
         const adapter = getAIProvider(pId);
 
-        // Independent 2.5s timeout per provider
+        // Independent timeout per provider
         const timeoutPromise = new Promise<{ models: MakkariModel[]; health: { status: ProviderStatus } }>((_, reject) =>
-          setTimeout(() => reject(new Error('Provider discovery timeout')), 2500)
+          setTimeout(() => reject(new Error('Provider discovery timeout')), 3000)
         );
 
         const discoveryPromise = (async () => {
-          // Cache-first discovery: if fresh cache exists, returns in <10ms
           const [discoveredModels, health] = await Promise.all([
             getProviderModels(pId, apiKey, false),
             adapter.healthCheck(apiKey),
@@ -88,7 +87,7 @@ export async function GET() {
 
     const duration = Date.now() - startTime;
     if (process.env.NODE_ENV === 'development') {
-      console.log(`[PERF][DISCOVERY] Completed in ${duration}ms`);
+      console.log(`[PERF][DISCOVERY] Completed in ${duration}ms across all providers`);
     }
 
     return NextResponse.json({
@@ -104,3 +103,4 @@ export async function GET() {
     return NextResponse.json({ success: false, error: msg }, { status: 500 });
   }
 }
+

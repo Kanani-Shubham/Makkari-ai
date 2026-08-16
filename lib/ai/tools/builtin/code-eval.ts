@@ -6,8 +6,13 @@ export const codeEvalTool: ToolDefinition = {
   description: 'Executes sandboxed computational JavaScript/TypeScript code snippets for data transformations and simulations.',
   category: 'coding',
   permissions: 'write',
-  requiresConfirmation: false,
-  enabled: true,
+  /**
+   * SEC-003: DANGEROUS — uses new Function() (server-side arbitrary JS execution).
+   * Disabled until Phase 10 implements a proper V8 Isolate / WASM sandbox.
+   * DO NOT re-enable in production without a real sandbox.
+   */
+  enabled: false,
+  requiresConfirmation: true,
   source: 'builtin',
   inputSchema: {
     type: 'object',

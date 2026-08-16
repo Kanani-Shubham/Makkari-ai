@@ -48,9 +48,11 @@ export async function GET(request: Request) {
               username: username,
               avatar_url: avatarUrl,
               theme: 'system',
-              preferred_model_id: 'gemini-2.0-flash',
+              preferred_model_id: 'gemini-1.5-flash',
               updated_at: new Date().toISOString(),
             },
+
+
             { onConflict: 'id', ignoreDuplicates: true }
           );
 

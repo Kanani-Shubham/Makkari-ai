@@ -78,14 +78,16 @@ export default function SignupPage() {
           )}
 
           {/* Social OAuth Buttons */}
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-2 gap-3" suppressHydrationWarning>
             <button
+              suppressHydrationWarning
               onClick={() => handleSocialLogin('google')}
               className="flex items-center justify-center gap-2 py-2 px-3 border border-[#E8E5E0] dark:border-[#2E2E2E] bg-white dark:bg-[#242424] rounded-xl text-xs font-medium text-[#1A1A1A] dark:text-[#E5E5E5] hover:bg-[#F7F6F3] dark:hover:bg-[#181818] transition-colors cursor-pointer"
             >
               <span>Google</span>
             </button>
             <button
+              suppressHydrationWarning
               onClick={() => handleSocialLogin('github')}
               className="flex items-center justify-center gap-2 py-2 px-3 border border-[#E8E5E0] dark:border-[#2E2E2E] bg-white dark:bg-[#242424] rounded-xl text-xs font-medium text-[#1A1A1A] dark:text-[#E5E5E5] hover:bg-[#F7F6F3] dark:hover:bg-[#181818] transition-colors cursor-pointer"
             >
@@ -93,6 +95,7 @@ export default function SignupPage() {
               <span>GitHub</span>
             </button>
           </div>
+
 
           <div className="relative flex items-center justify-center">
             <div className="border-t border-[#E8E5E0] dark:border-[#2E2E2E] w-full" />

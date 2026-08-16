@@ -24,6 +24,8 @@ export interface ResolvedCapabilities {
  * High-performance capability resolution pipeline (<15ms)
  * Evaluates the Output Contract, active skills, and absolute runtime tool/MCP truth.
  */
+import { modelRegistry } from '../discovery/model-registry';
+
 export async function resolveTurnCapabilities(
   context: CapabilityContext
 ): Promise<ResolvedCapabilities> {
@@ -40,6 +42,23 @@ export async function resolveTurnCapabilities(
   );
   const activeSkillNames = skillRes.activeSkills.map((s) => s.id);
 
+  // 2.5 Query ModelRegistry capabilities if not explicitly passed
+  let resolvedCaps = modelCapabilities;
+  if (!resolvedCaps && providerId && modelId) {
+    try {
+      const regCaps = await modelRegistry.getCapabilities(providerId, modelId);
+      resolvedCaps = {
+        nativeTools: regCaps.nativeToolCalls,
+        textToolProtocol: regCaps.tools,
+        vision: regCaps.vision,
+        reasoning: regCaps.reasoning,
+        streaming: regCaps.streaming,
+      };
+    } catch {
+      // safe fallback
+    }
+  }
+
   // 3. Absolute Capability & Tool Truth Resolution
   const truth = await resolveRuntimeCapabilities({
     modelId,
@@ -47,8 +66,9 @@ export async function resolveTurnCapabilities(
     userId,
     chatId,
     prompt: userPrompt,
-    modelCapabilities,
+    modelCapabilities: resolvedCaps,
   });
+
 
   // 4. Build manifest
   const manifestBlocks: string[] = [];

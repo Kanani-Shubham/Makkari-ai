@@ -163,23 +163,19 @@ export class StatefulToolProtocolParser {
       parameters.filename = parameters.file_name;
     }
 
-    // Check if parameters was JSON inside <tool_call>{...}</tool_call>
+    // Check if parameters was JSON inside <tool_call>{...}</tool_call> or <dots_function_call>{...}</dots_function_call>
     if (Object.keys(parameters).length === 0) {
       try {
         const jsonMatch = raw.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
           const parsedJson = JSON.parse(jsonMatch[0]);
-          if (parsedJson.name && parsedJson.arguments) {
+          const resolvedName = parsedJson.name || parsedJson.tool || toolName;
+          const resolvedArgs = parsedJson.parameters || parsedJson.arguments || parsedJson;
+
+          if (resolvedName && typeof resolvedArgs === 'object') {
             return {
-              name: parsedJson.name,
-              parameters: typeof parsedJson.arguments === 'string' ? JSON.parse(parsedJson.arguments) : parsedJson.arguments,
-              rawProtocol: raw,
-            };
-          }
-          if (parsedJson.action || parsedJson.filename || parsedJson.content) {
-            return {
-              name: toolName,
-              parameters: parsedJson,
+              name: resolvedName,
+              parameters: typeof resolvedArgs === 'string' ? JSON.parse(resolvedArgs) : resolvedArgs,
               rawProtocol: raw,
             };
           }
@@ -188,6 +184,7 @@ export class StatefulToolProtocolParser {
         // Ignore JSON parse error
       }
     }
+
 
     if (Object.keys(parameters).length > 0 || raw.includes('makkari_artifact')) {
       // Default to action=create if content exists

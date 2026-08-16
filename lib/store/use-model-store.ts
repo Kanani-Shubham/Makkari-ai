@@ -40,11 +40,12 @@ export const INITIAL_PROVIDERS_STATE: Record<ProviderId, ProviderState> = {
     name: 'Google Gemini',
     type: 'cloud',
     status: 'not_configured',
-    defaultModel: 'gemini-2.0-flash',
+    defaultModel: 'gemini-1.5-flash',
     hasKey: true,
     keyHint: 'API Key / Cloud',
     models: [],
   },
+
   ollama: {
     id: 'ollama',
     name: 'Ollama (Local AI)',
@@ -96,7 +97,9 @@ const ollamaAdapter = new OllamaAdapter();
 
 export const useModelStore = create<ModelStoreState>((set, get) => ({
   selectedProvider: 'gemini',
-  selectedModel: 'gemini-2.0-flash',
+  selectedModel: 'gemini-1.5-flash',
+
+
   selectedEffort: 'medium',
   providers: INITIAL_PROVIDERS_STATE,
   customKeys: {},

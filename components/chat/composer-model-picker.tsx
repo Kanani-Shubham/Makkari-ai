@@ -1,13 +1,16 @@
-'use client';
-
 import React, { useState } from 'react';
 import { useModelStore, ReasoningEffort } from '@/lib/store/use-model-store';
+import { useChatStore } from '@/lib/store/use-chat-store';
 import { ProviderId } from '@/lib/ai/types';
 import { getModelCategories } from '@/lib/ai/discovery-service';
 import { ChevronDown, Check, Server, Cpu, Zap, Brain, Sliders, RefreshCw } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-export function ComposerModelPicker() {
+interface ComposerModelPickerProps {
+  chatId?: string;
+}
+
+export function ComposerModelPicker({ chatId }: ComposerModelPickerProps = {}) {
   const {
     selectedProvider,
     selectedModel,
@@ -19,6 +22,9 @@ export function ComposerModelPicker() {
     refreshAllModels,
     isLoadingDiscovery,
   } = useModelStore();
+
+  const { activeChatId, updateChatModel } = useChatStore();
+
 
   const [isOpen, setIsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<'models' | 'effort'>('models');
@@ -147,22 +153,33 @@ export function ComposerModelPicker() {
                         ) : (
                           prov.models.map((model) => {
                             const isSelected = selectedProvider === provId && selectedModel === model.id;
-                            const categories = getModelCategories(model);
+                            const isUnavailable = model.availability === 'unavailable';
+                            const hasTools = model.capabilities?.tools;
+                            const hasThinking = model.capabilities?.reasoning?.supported;
+                            const hasVision = model.capabilities?.vision;
 
                             return (
                               <button
                                 key={model.id}
                                 type="button"
+                                disabled={isUnavailable}
                                 onClick={() => {
+                                  if (isUnavailable) return;
                                   setSelectedProvider(provId);
                                   setSelectedModel(model.id);
+                                  const targetChatId = chatId || activeChatId;
+                                  if (targetChatId) {
+                                    updateChatModel(targetChatId, provId, model.id);
+                                  }
                                   setIsOpen(false);
                                 }}
                                 className={cn(
-                                  'w-full flex items-start justify-between p-2 rounded-xl text-left transition-all cursor-pointer',
-                                  isSelected
-                                    ? 'bg-[#D97757]/10 border border-[#D97757]/30 text-[#D97757]'
-                                    : 'hover:bg-[#F7F6F3] dark:hover:bg-[#242424] text-[#1A1A1A] dark:text-[#E5E5E5] border border-transparent'
+                                  'w-full flex items-start justify-between p-2 rounded-xl text-left transition-all',
+                                  isUnavailable
+                                    ? 'opacity-50 cursor-not-allowed bg-transparent text-[#9E9E9E]'
+                                    : isSelected
+                                    ? 'bg-[#D97757]/10 border border-[#D97757]/30 text-[#D97757] cursor-pointer'
+                                    : 'hover:bg-[#F7F6F3] dark:hover:bg-[#242424] text-[#1A1A1A] dark:text-[#E5E5E5] border border-transparent cursor-pointer'
                                 )}
                               >
                                 <div className="space-y-0.5 min-w-0 pr-2">
@@ -175,24 +192,40 @@ export function ComposerModelPicker() {
                                         {model.badge}
                                       </span>
                                     )}
+                                    {isUnavailable && (
+                                      <span className="text-[9px] px-1.5 py-0.2 bg-amber-500/10 text-amber-600 dark:text-amber-400 rounded-full font-medium">
+                                        Key needed / Offline
+                                      </span>
+                                    )}
                                   </div>
-                                  {categories.length > 0 && (
-                                    <div className="flex gap-1 flex-wrap pt-0.5">
-                                      {categories.slice(0, 3).map((cat) => (
-                                        <span
-                                          key={cat}
-                                          className="text-[9px] text-[#6B6B6B] dark:text-[#9E9E9E] bg-[#E8E5E0]/50 dark:bg-[#2E2E2E]/50 px-1.5 rounded"
-                                        >
-                                          {cat}
-                                        </span>
-                                      ))}
-                                    </div>
-                                  )}
+                                  <div className="flex gap-1 flex-wrap pt-0.5">
+                                    {prov.type === 'local' && (
+                                      <span className="text-[9px] text-[#A86A4A] bg-[#A86A4A]/10 px-1.5 rounded font-medium">
+                                        🏠 Local
+                                      </span>
+                                    )}
+                                    {hasTools && (
+                                      <span className="text-[9px] text-blue-600 dark:text-blue-400 bg-blue-500/10 px-1.5 rounded font-medium">
+                                        ● Tools
+                                      </span>
+                                    )}
+                                    {hasThinking && (
+                                      <span className="text-[9px] text-purple-600 dark:text-purple-400 bg-purple-500/10 px-1.5 rounded font-medium">
+                                        ● Thinking
+                                      </span>
+                                    )}
+                                    {hasVision && (
+                                      <span className="text-[9px] text-emerald-600 dark:text-emerald-400 bg-emerald-500/10 px-1.5 rounded font-medium">
+                                        ● Vision
+                                      </span>
+                                    )}
+                                  </div>
                                 </div>
                                 {isSelected && <Check className="w-4 h-4 text-[#D97757] shrink-0 mt-0.5" />}
                               </button>
                             );
                           })
+
                         )}
                       </div>
                     </div>

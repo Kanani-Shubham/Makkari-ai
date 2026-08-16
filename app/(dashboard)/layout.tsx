@@ -17,12 +17,18 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   }, [loadUserProfileFromSupabase, syncProviderStatus]);
 
   return (
-    <div className="flex h-screen w-full bg-[#F7F6F3] dark:bg-[#121212] overflow-hidden text-[#1A1A1A] dark:text-[#E5E5E5]">
+    <div
+      suppressHydrationWarning
+      className="flex h-screen w-full bg-[#F7F6F3] dark:bg-[#121212] overflow-hidden text-[#1A1A1A] dark:text-[#E5E5E5]"
+    >
       <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
-      <div className="flex-1 flex flex-col h-full overflow-hidden">
+      <div className="flex-1 flex flex-col h-full overflow-hidden" suppressHydrationWarning>
         <Header onToggleSidebar={() => setSidebarOpen(!sidebarOpen)} />
-        <main className="flex-1 overflow-y-auto">{children}</main>
+        <main className="flex-1 overflow-y-auto" suppressHydrationWarning>
+          {children}
+        </main>
       </div>
     </div>
   );
+
 }

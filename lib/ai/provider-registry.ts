@@ -13,8 +13,10 @@ export const AI_PROVIDERS_CONFIG: Record<ProviderId, ProviderDefinition> = {
     id: 'gemini',
     name: 'Google Gemini',
     type: 'cloud',
-    defaultModelId: 'gemini-2.0-flash',
+    defaultModelId: 'gemini-1.5-flash',
   },
+
+
   ollama: {
     id: 'ollama',
     name: 'Ollama (Local AI)',

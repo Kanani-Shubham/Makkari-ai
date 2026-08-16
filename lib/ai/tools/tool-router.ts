@@ -34,15 +34,20 @@ export class ToolRouter {
     if (budget) {
       // Time limit check
       if (Date.now() - budget.startTime > this.MAX_EXECUTION_TIME_MS) {
-        recordCapabilityExecution({
-          userId: context.userId,
-          chatId: context.chatId,
-          toolId: call.toolName,
-          source: tool?.source || 'builtin',
-          status: 'blocked',
-          durationMs: Date.now() - startTime,
-          errorCode: 'EXECUTION_TIMEOUT',
-        });
+        recordCapabilityExecution(
+          {
+            userId: context.userId,
+            chatId: context.chatId,
+            turnId: context.turnId,
+            callId: call.callId,
+            toolId: call.toolName,
+            source: tool?.source || 'builtin',
+            status: 'blocked',
+            durationMs: Date.now() - startTime,
+            errorCode: 'EXECUTION_TIMEOUT',
+          },
+          context.supabaseClient
+        );
         return {
           success: false,
           error: 'Execution time budget exceeded for this turn (max 60s).',
@@ -51,15 +56,20 @@ export class ToolRouter {
 
       // Turn count limit
       if (budget.totalCalls >= this.MAX_TOOL_CALLS) {
-        recordCapabilityExecution({
-          userId: context.userId,
-          chatId: context.chatId,
-          toolId: call.toolName,
-          source: tool?.source || 'builtin',
-          status: 'blocked',
-          durationMs: Date.now() - startTime,
-          errorCode: 'MAX_CALLS_EXCEEDED',
-        });
+        recordCapabilityExecution(
+          {
+            userId: context.userId,
+            chatId: context.chatId,
+            turnId: context.turnId,
+            callId: call.callId,
+            toolId: call.toolName,
+            source: tool?.source || 'builtin',
+            status: 'blocked',
+            durationMs: Date.now() - startTime,
+            errorCode: 'MAX_CALLS_EXCEEDED',
+          },
+          context.supabaseClient
+        );
         return {
           success: false,
           error: `Tool execution budget exceeded (max ${this.MAX_TOOL_CALLS} tool calls per turn).`,
@@ -70,15 +80,20 @@ export class ToolRouter {
       const callSignature = `${call.toolName}:${JSON.stringify(call.arguments || {})}`;
       const duplicateCount = budget.callHistory.filter((c) => c === callSignature).length;
       if (duplicateCount >= 2) {
-        recordCapabilityExecution({
-          userId: context.userId,
-          chatId: context.chatId,
-          toolId: call.toolName,
-          source: tool?.source || 'builtin',
-          status: 'blocked',
-          durationMs: Date.now() - startTime,
-          errorCode: 'TOOL_LOOP_DETECTED',
-        });
+        recordCapabilityExecution(
+          {
+            userId: context.userId,
+            chatId: context.chatId,
+            turnId: context.turnId,
+            callId: call.callId,
+            toolId: call.toolName,
+            source: tool?.source || 'builtin',
+            status: 'loop_detected',
+            durationMs: Date.now() - startTime,
+            errorCode: 'TOOL_LOOP_DETECTED',
+          },
+          context.supabaseClient
+        );
         return {
           success: false,
           error: `Recursive loop detected for tool "${call.toolName}". Execution halted to protect system resources.`,
@@ -100,15 +115,20 @@ export class ToolRouter {
 
     // 2. Tool existence check
     if (!tool) {
-      recordCapabilityExecution({
-        userId: context.userId,
-        chatId: context.chatId,
-        toolId: call.toolName || call.toolId,
-        source: 'builtin',
-        status: 'failed',
-        durationMs: Date.now() - startTime,
-        errorCode: 'TOOL_NOT_FOUND',
-      });
+      recordCapabilityExecution(
+        {
+          userId: context.userId,
+          chatId: context.chatId,
+          turnId: context.turnId,
+          callId: call.callId,
+          toolId: call.toolName || call.toolId,
+          source: 'builtin',
+          status: 'failed',
+          durationMs: Date.now() - startTime,
+          errorCode: 'TOOL_NOT_FOUND',
+        },
+        context.supabaseClient
+      );
       return {
         success: false,
         error: `Tool "${call.toolName || call.toolId}" not found in capability registry.`,
@@ -117,15 +137,20 @@ export class ToolRouter {
 
     // 3. Tool enabled check
     if (!tool.enabled) {
-      recordCapabilityExecution({
-        userId: context.userId,
-        chatId: context.chatId,
-        toolId: tool.id,
-        source: tool.source,
-        status: 'blocked',
-        durationMs: Date.now() - startTime,
-        errorCode: 'TOOL_DISABLED',
-      });
+      recordCapabilityExecution(
+        {
+          userId: context.userId,
+          chatId: context.chatId,
+          turnId: context.turnId,
+          callId: call.callId,
+          toolId: tool.id,
+          source: tool.source,
+          status: 'blocked',
+          durationMs: Date.now() - startTime,
+          errorCode: 'TOOL_DISABLED',
+        },
+        context.supabaseClient
+      );
       return {
         success: false,
         error: `Tool "${tool.name}" is currently disabled in your Skills & Tools settings.`,
@@ -136,15 +161,20 @@ export class ToolRouter {
     const requiredArgs = tool.inputSchema.required || [];
     for (const req of requiredArgs) {
       if (call.arguments[req] === undefined || call.arguments[req] === null || call.arguments[req] === '') {
-        recordCapabilityExecution({
-          userId: context.userId,
-          chatId: context.chatId,
-          toolId: tool.id,
-          source: tool.source,
-          status: 'failed',
-          durationMs: Date.now() - startTime,
-          errorCode: 'INVALID_ARGUMENTS',
-        });
+        recordCapabilityExecution(
+          {
+            userId: context.userId,
+            chatId: context.chatId,
+            turnId: context.turnId,
+            callId: call.callId,
+            toolId: tool.id,
+            source: tool.source,
+            status: 'failed',
+            durationMs: Date.now() - startTime,
+            errorCode: 'INVALID_ARGUMENTS',
+          },
+          context.supabaseClient
+        );
         return {
           success: false,
           error: `Missing required parameter "${req}" for tool "${tool.name}".`,
@@ -154,16 +184,21 @@ export class ToolRouter {
 
     // 5. Confirmation requirement check for destructive / external side effects
     if (tool.requiresConfirmation) {
-      recordCapabilityExecution({
-        userId: context.userId,
-        chatId: context.chatId,
-        toolId: tool.id,
-        source: tool.source,
-        status: 'confirmation_required',
-        durationMs: Date.now() - startTime,
-        confirmationRequired: true,
-        confirmationResult: 'pending',
-      });
+      recordCapabilityExecution(
+        {
+          userId: context.userId,
+          chatId: context.chatId,
+          turnId: context.turnId,
+          callId: call.callId,
+          toolId: tool.id,
+          source: tool.source,
+          status: 'confirmation_required',
+          durationMs: Date.now() - startTime,
+          confirmationRequired: true,
+          confirmationResult: 'pending',
+        },
+        context.supabaseClient
+      );
       return {
         success: false,
         requiresConfirmation: true,
@@ -174,40 +209,58 @@ export class ToolRouter {
 
     // 6. Execute tool safely
     try {
-      const result = await tool.handler(call.arguments, context);
+      const mergedContext: ToolExecutionContext = {
+        ...context,
+        callId: call.callId,
+      };
+
+      const result = await tool.handler(call.arguments, mergedContext);
       const durationMs = Date.now() - startTime;
 
-      recordCapabilityExecution({
-        userId: context.userId,
-        chatId: context.chatId,
-        toolId: tool.id,
-        source: tool.source,
-        status: result.success ? 'completed' : 'failed',
-        durationMs,
-        errorCode: result.error ? 'HANDLER_ERROR' : undefined,
-      });
+      recordCapabilityExecution(
+        {
+          userId: context.userId,
+          chatId: context.chatId,
+          turnId: context.turnId,
+          callId: call.callId,
+          toolId: tool.id,
+          source: tool.source,
+          status: result.success ? 'completed' : 'failed',
+          durationMs,
+          errorCode: result.error ? 'HANDLER_ERROR' : undefined,
+        },
+        context.supabaseClient
+      );
 
       // 7. Untrusted data boundary sanitization
       const outputText = result.formattedOutput || JSON.stringify(result.result || {});
-      const boundedOutput = `<tool_result name="${tool.name}">\n${outputText}\n</tool_result>`;
+      const boundedOutput = result.success
+        ? `<tool_result name="${tool.name}">\n${outputText}\n</tool_result>`
+        : `<tool_result name="${tool.name}" status="error">\nError: ${result.error || outputText}\n</tool_result>`;
 
       return {
         ...result,
         formattedOutput: boundedOutput,
       };
+
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : 'Unknown tool execution failure';
       const durationMs = Date.now() - startTime;
 
-      recordCapabilityExecution({
-        userId: context.userId,
-        chatId: context.chatId,
-        toolId: tool.id,
-        source: tool.source,
-        status: 'failed',
-        durationMs,
-        errorCode: 'EXECUTION_EXCEPTION',
-      });
+      recordCapabilityExecution(
+        {
+          userId: context.userId,
+          chatId: context.chatId,
+          turnId: context.turnId,
+          callId: call.callId,
+          toolId: tool.id,
+          source: tool.source,
+          status: 'failed',
+          durationMs,
+          errorCode: 'EXECUTION_EXCEPTION',
+        },
+        context.supabaseClient
+      );
 
       console.error(`[TOOL_ROUTER] Error executing ${tool.name}:`, err);
       return {

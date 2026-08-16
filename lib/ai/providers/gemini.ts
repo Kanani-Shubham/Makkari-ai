@@ -180,22 +180,16 @@ export class GeminiAdapter implements ProviderAdapter {
       };
     }
 
-    let targetId = modelId.replace(/^models\//, '');
-    // Normalize deprecated or unreleased model IDs to active official endpoints
-    if (
-      targetId.includes('gemini-2.5') ||
-      targetId.includes('gemini-3.') ||
-      targetId.includes('nano-banana') ||
-      targetId === 'gemini-1.5-flash-8b'
-    ) {
-      targetId = 'gemini-2.0-flash';
+    let targetId = (modelId || 'gemini-2.5-flash').replace(/^models\//, '').trim();
+    if (!targetId || targetId === 'default') {
+      targetId = 'gemini-2.5-flash';
     }
 
     // Thinking/Reasoning configuration if supported and effort specified
     const supportsThinking =
       targetId.includes('thinking') ||
-      targetId === 'gemini-2.0-flash' ||
-      targetId === 'gemini-2.0-flash-exp';
+      targetId.includes('2.5') ||
+      targetId.includes('exp');
 
     if (reasoningEffort && supportsThinking) {
       (bodyPayload.generationConfig as Record<string, unknown>).thinkingConfig = {
@@ -204,6 +198,7 @@ export class GeminiAdapter implements ProviderAdapter {
     }
 
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${targetId}:streamGenerateContent?alt=sse&key=${key}`;
+
 
     let response: Response;
     try {

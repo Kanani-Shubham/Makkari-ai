@@ -19,15 +19,19 @@ export const fetchUrlTool: ToolDefinition = {
     },
     required: ['url'],
   },
-  handler: async (args) => {
+  handler: async (args, context) => {
     const rawUrl = String(args.url || '').trim();
     if (!rawUrl) return { success: false, error: 'URL is required.' };
 
     try {
+      context?.onProgress?.(0.1, `Validating URL: ${rawUrl}`);
+
       const parsed = new URL(rawUrl);
       if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
         return { success: false, error: 'Only http and https protocols are supported.' };
       }
+
+      context?.onProgress?.(0.3, `Connecting to ${parsed.hostname}...`);
 
       const res = await fetch(rawUrl, {
         headers: {
@@ -39,7 +43,10 @@ export const fetchUrlTool: ToolDefinition = {
         return { success: false, error: `Failed to fetch URL: HTTP status ${res.status}` };
       }
 
+      context?.onProgress?.(0.7, 'Reading and parsing response content...');
+
       const text = await res.text();
+
 
       // Clean HTML tags and scripts
       const cleaned = text

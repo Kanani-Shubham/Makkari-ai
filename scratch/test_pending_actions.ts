@@ -48,10 +48,11 @@ async function runPendingActionTests() {
 
   // TEST 3: Idempotent Execution
   console.log('\n--- TEST 3: Idempotent Execution ---');
-  const exec1 = await PendingActionStore.executeAction(null, userId, actionId, 'exec_001');
+  const testCtx = { userId, chatId: conversationId };
+  const exec1 = await PendingActionStore.executeAction(null, userId, actionId, 'exec_001', testCtx);
   assert(exec1.success === true, 'First execution succeeded');
 
-  const exec2 = await PendingActionStore.executeAction(null, userId, actionId, 'exec_002');
+  const exec2 = await PendingActionStore.executeAction(null, userId, actionId, 'exec_002', testCtx);
   assert(exec2.success === true, 'Second execution handled safely');
   assert((exec2.result as any).idempotencySkipped === true, 'Duplicate execution skipped idempotently');
 
@@ -66,7 +67,7 @@ async function runPendingActionTests() {
     'Create Canva Poster'
   );
 
-  const canvaExec = await PendingActionStore.executeAction(null, userId, canvaActId, 'exec_canva');
+  const canvaExec = await PendingActionStore.executeAction(null, userId, canvaActId, 'exec_canva', testCtx);
   assert(canvaExec.success === false, 'Disconnected MCP execution rejected at execution time');
   assert(canvaExec.error?.includes('offline or disconnected') === true, 'Correct disconnected error returned');
 

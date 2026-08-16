@@ -16,7 +16,9 @@ export type ModelAvailability =
   | 'verified'
   | 'unverified'
   | 'deprecated'
-  | 'unavailable';
+  | 'unavailable'
+  | 'unknown';
+
 
 export type ModelVerificationStatus =
   | 'VERIFIED'
@@ -173,9 +175,17 @@ export interface ChatMessage {
       durationMs?: number;
       provider?: string;
       summary?: string;
+      events?: Array<{
+        type: 'status' | 'tool' | 'skill' | 'mcp' | 'artifact';
+        text: string;
+        name?: string;
+        status?: 'started' | 'completed' | 'failed';
+        timestamp?: number;
+      }>;
     };
     [key: string]: unknown;
   };
+
   created_at?: string;
 }
 

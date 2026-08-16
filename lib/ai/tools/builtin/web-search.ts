@@ -23,13 +23,15 @@ export const webSearchTool: ToolDefinition = {
     },
     required: ['query'],
   },
-  handler: async (args) => {
+  handler: async (args, context) => {
     const query = String(args.query || '').trim();
     if (!query) return { success: false, error: 'Search query is required.' };
 
     const limit = Math.min(Math.max(1, Number(args.numResults) || 3), 5);
 
     try {
+      context?.onProgress?.(0.2, `Executing web search for: "${query}"`);
+
       // Use DuckDuckGo HTML API or standard public search endpoint
       const encodedQuery = encodeURIComponent(query);
       const res = await fetch(`https://html.duckduckgo.com/html/?q=${encodedQuery}`, {
@@ -37,6 +39,9 @@ export const webSearchTool: ToolDefinition = {
           'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
         },
       });
+
+      context?.onProgress?.(0.6, 'Parsing search results...');
+
 
       if (!res.ok) {
         return {

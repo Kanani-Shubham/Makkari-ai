@@ -12,12 +12,12 @@ const CACHE_TTL_MS = 10 * 60 * 1000; // 10 minutes cache for optimal speed
 export const CANONICAL_FALLBACK_MODELS: Record<ProviderId, MakkariModel[]> = {
   gemini: [
     {
-      id: 'gemini-2.0-flash',
+      id: 'gemini-2.5-flash',
       providerId: 'gemini',
       providerKey: 'gemini',
-      name: 'Gemini 2.0 Flash',
-      displayName: 'Gemini 2.0 Flash',
-      description: '1,048,576 context tokens • Next Gen Multimodal & Fast',
+      name: 'Gemini 2.5 Flash',
+      displayName: 'Gemini 2.5 Flash',
+      description: '1,048,576 context tokens • Fast, Multimodal Flagship with Native Function Calling',
       type: 'cloud',
       capabilities: {
         text: true,
@@ -37,12 +37,12 @@ export const CANONICAL_FALLBACK_MODELS: Record<ProviderId, MakkariModel[]> = {
       badge: 'Fast & Smart',
     },
     {
-      id: 'gemini-2.0-flash-exp',
+      id: 'gemini-2.5-pro',
       providerId: 'gemini',
       providerKey: 'gemini',
-      name: 'Gemini 2.0 Flash Experimental',
-      displayName: 'Gemini 2.0 Flash Exp',
-      description: '1,048,576 context tokens • Cutting-edge Speed & Multimodal',
+      name: 'Gemini 2.5 Pro',
+      displayName: 'Gemini 2.5 Pro',
+      description: '2,097,152 context tokens • Deep Reasoning & Complex Problem Solving',
       type: 'cloud',
       capabilities: {
         text: true,
@@ -54,39 +54,40 @@ export const CANONICAL_FALLBACK_MODELS: Record<ProviderId, MakkariModel[]> = {
         fileInput: true,
         streaming: true,
         tools: true,
-        reasoning: { supported: true, visible: true, configurable: true, supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
-      },
-      contextWindow: 1048576,
-      maxOutputTokens: 8192,
-      availability: 'available',
-      badge: 'Next Gen',
-    },
-    {
-      id: 'gemini-1.5-pro',
-      providerId: 'gemini',
-      providerKey: 'gemini',
-      name: 'Gemini 1.5 Pro',
-      displayName: 'Gemini 1.5 Pro',
-      description: '2,097,152 context tokens • Deep Reasoning & Long Context',
-      type: 'cloud',
-      capabilities: {
-        text: true,
-        vision: true,
-        imageGeneration: false,
-        audioInput: true,
-        audioOutput: false,
-        videoInput: true,
-        fileInput: true,
-        streaming: true,
-        tools: true,
-        reasoning: { supported: true, visible: true, configurable: true, supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'medium' },
+        reasoning: { supported: true, visible: true, configurable: true, supportedEfforts: ['low', 'medium', 'high'], defaultEffort: 'high' },
       },
       contextWindow: 2097152,
       maxOutputTokens: 8192,
       availability: 'available',
       badge: 'Deep Reasoning',
     },
+    {
+      id: 'gemini-2.5-flash-lite',
+      providerId: 'gemini',
+      providerKey: 'gemini',
+      name: 'Gemini 2.5 Flash-Lite',
+      displayName: 'Gemini 2.5 Flash-Lite',
+      description: '1,048,576 context tokens • Cost-efficient and ultra-fast high throughput',
+      type: 'cloud',
+      capabilities: {
+        text: true,
+        vision: true,
+        imageGeneration: false,
+        audioInput: true,
+        audioOutput: false,
+        videoInput: true,
+        fileInput: true,
+        streaming: true,
+        tools: true,
+        reasoning: { supported: false, visible: false, configurable: false },
+      },
+      contextWindow: 1048576,
+      maxOutputTokens: 8192,
+      availability: 'available',
+      badge: 'Ultra Fast',
+    },
   ],
+
   groq: [
     {
       id: 'llama-3.3-70b-versatile',
@@ -323,52 +324,56 @@ export const CANONICAL_FALLBACK_MODELS: Record<ProviderId, MakkariModel[]> = {
   ollama: [],
 };
 
+import { modelRegistry } from './discovery/model-registry';
+
 export async function getProviderModels(
   providerId: ProviderId,
   apiKey?: string,
   forceRefresh = false
 ): Promise<MakkariModel[]> {
-  const cacheKey = `${providerId}:${apiKey ? apiKey.slice(-6) : 'env'}`;
-  const cached = discoveryCache.get(cacheKey);
-  const now = Date.now();
-
-  // Return cached if still fresh and not force refreshing
-  if (!forceRefresh && cached && now - cached.timestamp < CACHE_TTL_MS && cached.models.length > 0) {
-    return cached.models;
-  }
-
   try {
-    const adapter = getAIProvider(providerId);
-    const discovered = await adapter.discoverModels(apiKey);
-
-    if (discovered.length > 0) {
-      discoveryCache.set(cacheKey, {
-        models: discovered,
-        timestamp: now,
-      });
-      return discovered;
+    const discovered = await modelRegistry.discover(providerId, { apiKey, forceRefresh });
+    if (discovered && discovered.length > 0) {
+      return discovered.map((d) => ({
+        id: d.id,
+        providerId: d.provider,
+        providerKey: d.provider,
+        name: d.displayName,
+        displayName: d.displayName,
+        description: d.description || `${d.contextWindow ? d.contextWindow.toLocaleString() + ' tokens' : 'Available'}`,
+        type: d.provider === 'ollama' ? 'local' : 'cloud',
+        capabilities: {
+          text: d.capabilities.text,
+          vision: d.capabilities.vision,
+          imageGeneration: false,
+          audioInput: false,
+          audioOutput: false,
+          videoInput: false,
+          fileInput: true,
+          streaming: d.capabilities.streaming,
+          tools: d.capabilities.tools,
+          reasoning: {
+            supported: d.capabilities.reasoning,
+            visible: d.capabilities.reasoning,
+            configurable: d.capabilities.reasoning,
+            supportedEfforts: ['low', 'medium', 'high'],
+            defaultEffort: 'medium',
+          },
+        },
+        contextWindow: d.contextWindow || 128000,
+        maxOutputTokens: d.maxOutputTokens || 8192,
+        availability: d.availability,
+        badge: d.badge,
+      }));
     }
   } catch (err: any) {
-    const msg = err instanceof Error ? err.message : 'Unknown';
-    console.warn(`[DISCOVERY_SERVICE] Discovered models failed for ${providerId} (${msg}), using canonical models.`);
-  }
-
-  // Fallback to stale cache if available
-  if (cached && cached.models.length > 0) {
-    return cached.models;
+    console.warn(`[DISCOVERY_SERVICE] ModelRegistry discovery warning for ${providerId}:`, err.message);
   }
 
   // Fallback to canonical static models
-  const fallback = CANONICAL_FALLBACK_MODELS[providerId] || [];
-  if (fallback.length > 0) {
-    discoveryCache.set(cacheKey, {
-      models: fallback,
-      timestamp: now,
-    });
-  }
-
-  return fallback;
+  return CANONICAL_FALLBACK_MODELS[providerId] || [];
 }
+
 
 /**
  * Computes dynamic categorical tags for any MakkariModel

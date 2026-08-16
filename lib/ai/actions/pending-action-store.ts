@@ -2,6 +2,8 @@ import { SupabaseClient } from '@supabase/supabase-js';
 import { ActionRequiredPayload } from '../events/canonical-events';
 import { toolRegistry } from '../tools/registry';
 import { mcpRegistry } from '../mcp/registry';
+import { toolRouter } from '../tools/tool-router';
+import { ToolExecutionContext } from '../tools/types';
 
 export interface PendingActionRecord {
   id: string;
@@ -137,13 +139,18 @@ export class PendingActionStore {
   }
 
   /**
-   * Re-evaluates authorization at execution time and executes the pending action with idempotency.
+   * Re-evaluates authorization at execution time and executes the pending action
+   * through ToolRouter (provides budget, audit, schema validation).
+   *
+   * SEC-002 / SEC-007 FIX: Replaced stub with real ToolRouter execution.
+   * The previous implementation marked the action 'completed' without calling any tool.
    */
   public static async executeAction(
     supabase: SupabaseClient | null,
     userId: string,
     actionId: string,
-    executionId: string
+    executionId: string,
+    toolContext: ToolExecutionContext
   ): Promise<{ success: boolean; result?: unknown; error?: string }> {
     let action: PendingActionRecord | null = null;
 
@@ -195,36 +202,59 @@ export class PendingActionStore {
       }
     }
 
-    // Mark executing
+    // Mark as executing
     action.status = 'executing';
     action.execution_id = executionId;
 
-    // Simulate tool execution completion
-    const completedNow = new Date().toISOString();
-    action.status = 'completed';
-    action.completed_at = completedNow;
-
-    if (supabase) {
-      try {
-        await supabase
-          .from('pending_actions')
-          .update({
-            status: 'completed',
-            execution_id: executionId,
-            completed_at: completedNow,
-          })
-          .eq('id', actionId);
-      } catch {}
-    }
-
-    return {
-      success: true,
-      result: {
-        actionId,
-        tool: action.tool,
-        executedAt: completedNow,
-        summary: `Successfully executed ${action.tool}`,
+    // Execute through ToolRouter — applies budget, schema validation, loop detection, audit
+    const callId = executionId;
+    const routerResult = await toolRouter.executeToolCall(
+      {
+        toolId: action.tool,
+        toolName: action.tool,
+        callId,
+        arguments: action.arguments as Record<string, any>,
       },
-    };
+      toolContext
+    );
+
+    const completedNow = new Date().toISOString();
+
+    if (routerResult.success) {
+      action.status = 'completed';
+      action.completed_at = completedNow;
+
+      if (supabase) {
+        try {
+          await supabase
+            .from('pending_actions')
+            .update({
+              status: 'completed',
+              execution_id: executionId,
+              completed_at: completedNow,
+            })
+            .eq('id', actionId);
+        } catch {}
+      }
+
+      return {
+        success: true,
+        result: {
+          actionId,
+          tool: action.tool,
+          executedAt: completedNow,
+          summary: routerResult.formattedOutput || `Successfully executed ${action.tool}`,
+          output: routerResult.result,
+        },
+      };
+    } else {
+      // Execution failed — reset status to pending so user can retry
+      action.status = 'pending';
+
+      return {
+        success: false,
+        error: routerResult.error || `Tool ${action.tool} execution failed.`,
+      };
+    }
   }
 }

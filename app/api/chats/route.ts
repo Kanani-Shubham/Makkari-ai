@@ -53,7 +53,9 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, title = 'New Conversation', providerId = 'gemini', modelId = 'gemini-2.0-flash' } = body;
+    const { id, title = 'New Conversation', providerId = 'gemini', modelId = 'gemini-1.5-flash' } = body;
+
+
 
     const supabase = await createClient();
     const {
@@ -117,7 +119,7 @@ export async function POST(req: NextRequest) {
 export async function PATCH(req: NextRequest) {
   try {
     const body = await req.json();
-    const { id, title, title_source, isPinned, pinnedAt } = body;
+    const { id, title, title_source, isPinned, pinnedAt, providerId, modelId } = body;
 
     if (!id) {
       return NextResponse.json({ error: 'Chat ID required' }, { status: 400 });
@@ -138,6 +140,8 @@ export async function PATCH(req: NextRequest) {
     };
     if (title !== undefined) updatePayload.title = title;
     if (title_source !== undefined) updatePayload.title_source = title_source;
+    if (providerId !== undefined) updatePayload.provider_id = providerId;
+    if (modelId !== undefined) updatePayload.model_id = modelId;
     if (pinnedAt !== undefined) {
       updatePayload.pinned_at = pinnedAt;
       updatePayload.is_pinned = pinnedAt !== null;
@@ -145,6 +149,7 @@ export async function PATCH(req: NextRequest) {
       updatePayload.is_pinned = isPinned;
       updatePayload.pinned_at = isPinned ? new Date().toISOString() : null;
     }
+
 
     console.log('[CHATS_PATCH] Updating chat:', id, updatePayload);
 

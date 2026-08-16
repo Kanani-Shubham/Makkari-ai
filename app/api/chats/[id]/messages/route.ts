@@ -91,8 +91,10 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
           title: 'New Conversation',
           title_source: 'auto',
           provider_id: providerId || 'gemini',
-          model_id: modelId || 'gemini-2.0-flash',
+          model_id: modelId || 'gemini-1.5-flash',
           pinned_at: null,
+
+
           is_pinned: false,
           is_archived: false,
           updated_at: new Date().toISOString(),

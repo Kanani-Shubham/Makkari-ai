@@ -103,18 +103,20 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
       />
 
       <aside
+        suppressHydrationWarning
         className={cn(
           'fixed md:static inset-y-0 left-0 z-50 w-72 sm:w-80 bg-[#F7F6F3] dark:bg-[#181818] border-r border-[#E8E5E0] dark:border-[#2E2E2E] flex flex-col justify-between transition-transform duration-300 ease-in-out select-none',
           isOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
         )}
       >
         {/* Top Header & New Chat Bar */}
-        <div className="p-3.5 flex flex-col gap-3">
+        <div className="p-3.5 flex flex-col gap-3" suppressHydrationWarning>
           <div className="flex items-center justify-between">
             <Link href="/" className="px-1 group">
               <MakkariLogo variant="horizontal" size="md" />
             </Link>
             <button
+              suppressHydrationWarning
               onClick={onClose}
               className="p-1.5 rounded-xl text-[#6B6B6B] dark:text-[#9E9E9E] hover:text-[#1A1A1A] dark:hover:text-[#E5E5E5] hover:bg-[#EFECE6] dark:hover:bg-[#2A2A2A] md:hidden cursor-pointer"
             >
@@ -124,6 +126,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
           {/* New Chat Button */}
           <button
+            suppressHydrationWarning
             onClick={handleNewChat}
             className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-2xl bg-[#D97757] text-white text-xs sm:text-sm font-semibold hover:bg-[#C66345] shadow-xs hover:shadow-sm transition-all active:scale-[0.98] cursor-pointer min-h-[44px]"
           >
@@ -133,6 +136,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
 
           {/* Search Trigger Button with ⌘K Badge */}
           <button
+            suppressHydrationWarning
             onClick={() => setIsSearchPaletteOpen(true)}
             className="w-full flex items-center justify-between px-3 py-2 text-xs bg-white dark:bg-[#222222] border border-[#E8E5E0] dark:border-[#2E2E2E] rounded-2xl text-[#6B6B6B] dark:text-[#9E9E9E] hover:border-[#D97757]/40 hover:text-[#1A1A1A] dark:hover:text-[#E5E5E5] transition-all cursor-pointer min-h-[38px]"
           >
@@ -143,6 +147,7 @@ export function Sidebar({ isOpen, onClose }: SidebarProps) {
             <kbd className="px-1.5 py-0.5 rounded-md bg-[#F7F6F3] dark:bg-[#2E2E2E] border border-[#E8E5E0] dark:border-[#3A3A3A] font-mono text-[10px] text-[#6B6B6B] dark:text-[#9E9E9E]">
               ⌘K
             </kbd>
+
           </button>
 
           {/* 10-Pin Limit Warning Toast */}

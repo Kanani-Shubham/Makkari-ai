@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    console.log('[API_KEY_SAVE] Database upsert success:', data);
+    console.log('[API_KEY_SAVE] Database upsert success for provider:', provider, 'user:', userId);
 
     return NextResponse.json({
       success: true,

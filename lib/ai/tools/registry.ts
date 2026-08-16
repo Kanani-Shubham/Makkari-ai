@@ -33,7 +33,12 @@ export class ToolRegistry {
   public registerTool(tool: ToolDefinition) {
     this.tools.set(tool.id.toLowerCase(), tool);
     this.tools.set(tool.name.toLowerCase(), tool);
+    if (tool.id === 'code_runner' || tool.id === 'code_eval') {
+      this.tools.set('code_runner', tool);
+      this.tools.set('code_eval', tool);
+    }
   }
+
 
   public unregisterTool(toolId: string) {
     this.tools.delete(toolId.toLowerCase());

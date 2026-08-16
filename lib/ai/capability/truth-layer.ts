@@ -165,8 +165,12 @@ export async function resolveRuntimeCapabilities(
       try {
         const discovered = await mcpRegistry.discoverServerTools(server.id);
         for (const t of discovered) {
-          const registered = toolRegistry.getTool(`mcp_${server.id}_${t.name}`);
+          const registered =
+            toolRegistry.getTool(t.name) ||
+            toolRegistry.getTool(`mcp_${server.id}_${t.name}`) ||
+            toolRegistry.getTool(`mcp:${server.id}:${t.name}`);
           const isExec = modelAllowsTools && (registered ? registered.enabled : true);
+
 
           decisions.push({
             tool: `mcp.${server.id}.${t.name}`,
@@ -210,9 +214,25 @@ export async function resolveRuntimeCapabilities(
   if (executableTools.length > 0) {
     manifestBlocks.push('<available_executable_tools>');
     for (const t of executableTools) {
-      manifestBlocks.push(`- **${t.name}**: ${t.description} (Source: ${t.source})`);
+      manifestBlocks.push(
+        `- **tool**: "${t.name}"\n  **description**: ${t.description}\n  **parameters**: ${JSON.stringify(t.inputSchema)}`
+      );
     }
     manifestBlocks.push('</available_executable_tools>');
+
+    manifestBlocks.push(`<tool_calling_protocol>
+You have access to the executable tools listed above.
+CRITICAL INSTRUCTION:
+When the user asks you to perform a task that a tool can perform (e.g. calculate an expression, fetch a URL, search the web, create an artifact, store a memory):
+1. DO NOT describe what you will do or explain that you have access to tools.
+2. Immediately INVOKE the tool by outputting the following exact XML block:
+
+<dots_function_call>
+{"name": "tool_name", "parameters": {"param_name": "param_value"}}
+</dots_function_call>
+
+3. Stop generating after the closing </dots_function_call> tag. The system will execute the tool and provide the <tool_result> in the next turn so you can formulate your answer.
+</tool_calling_protocol>`);
   } else {
     manifestBlocks.push('<available_executable_tools>NONE</available_executable_tools>');
   }
@@ -221,12 +241,14 @@ export async function resolveRuntimeCapabilities(
   if (disconnectedServices.length > 0) {
     manifestBlocks.push('<disconnected_services_guidance>');
     for (const d of disconnectedServices) {
-      manifestBlocks.push(`- **${d.name}**: DISCONNECTED. If the user asks you to use or create something with ${d.name}, you MUST inform them that ${d.name} is not connected in this workspace and must be connected in Settings / Integrations first. Never pretend or hallucinate that you executed a ${d.name} tool.`);
+      manifestBlocks.push(`- **${d.name}**: DISCONNECTED. If the user asks you to use or create something with ${d.name}, inform them that ${d.name} is currently disconnected in this workspace and can be connected in Settings → Skills & Tools. Never fabricate tool execution, never invent fake design IDs/URLs, and never output placeholder command previews like "undefined".`);
     }
     manifestBlocks.push('</disconnected_services_guidance>');
+
   }
 
   manifestBlocks.push('</capability_truth>');
+
 
   return {
     executableTools,

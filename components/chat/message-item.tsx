@@ -111,7 +111,7 @@ export function MessageItem({ message, onRegenerate, onDelete, isStreaming = fal
           </div>
 
           {/* Single Dynamic Claude-Style Thinking Panel */}
-          {(reasoningData?.available || (isStreaming && !message.content)) && (
+          {(reasoningData?.available || (isStreaming && !message.content) || (reasoningData?.events && reasoningData.events.length > 0)) && (
             <ThinkingPanel
               summary={reasoningData?.summary}
               durationMs={reasoningData?.durationMs}
@@ -119,8 +119,11 @@ export function MessageItem({ message, onRegenerate, onDelete, isStreaming = fal
               isStreaming={isStreaming}
               hasContent={!!message.content && message.content.length > 0}
               hasArtifact={messageArtifacts.length > 0}
+              hasToolCall={reasoningData?.events?.some((e) => e.type === 'tool')}
+              events={reasoningData?.events}
             />
           )}
+
 
           {/* Associated Artifact Cards */}
           {messageArtifacts.map((art) => (

@@ -1,23 +1,42 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getAIProvider } from '@/lib/ai/adapter';
-import { ProviderId, ChatMessage, ChatRequest } from '@/lib/ai/types';
+import { ProviderId, ChatMessage } from '@/lib/ai/types';
 import { decryptKey } from '@/lib/ai/encryption';
 import { createClient } from '@/lib/supabase/server';
 import { getRelevantMemoryContext, formatMemoryContextPrompt } from '@/lib/ai/memory/memory-service';
 import { processPostChatJobs } from '@/lib/ai/memory/post-chat-worker';
 import { detectMemoryIntent } from '@/lib/ai/memory/memory-intent';
-import { executeMemoryTool } from '@/lib/ai/tools/memory';
 import { resolveTurnCapabilities } from '@/lib/ai/capability/pipeline';
-import { StatefulToolProtocolParser, ParsedToolCall } from '@/lib/ai/stream/tool-protocol-parser';
-import { createConversationArtifact } from '@/lib/artifacts/artifact-service';
 import { CanonicalEventBus } from '@/lib/ai/events/canonical-events';
 import { PendingActionStore } from '@/lib/ai/actions/pending-action-store';
+import { toolRouter } from '@/lib/ai/tools/tool-router';
+import { generateCallId } from '@/lib/ai/runtime/runtime-messages';
+import { createTurnState } from '@/lib/ai/runtime/turn-state';
+import { queryEngine } from '@/lib/ai/runtime/query-engine';
+import { ToolExecutionContext } from '@/lib/ai/tools/types';
+
+/**
+ * Chat Stream Route Handler
+ *
+ * ARCHITECTURAL CONTRACT:
+ * Route authenticates, decrypts keys, resolves capabilities & memory,
+ * constructs TurnState, and hands execution directly to QueryEngine.
+ * QueryEngine is the ONLY place that invokes provider streaming and drives tool loops.
+ */
+const DEFAULT_PROVIDER_MODELS: Record<ProviderId, string> = {
+  gemini: 'gemini-2.5-flash',
+  groq: 'llama-3.3-70b-versatile',
+  ollama: 'llama3.2',
+  openai: 'gpt-4o',
+  anthropic: 'claude-3-5-sonnet-latest',
+  openrouter: 'anthropic/claude-3.5-sonnet',
+};
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json();
-    const providerId: ProviderId = (body.providerId || body.provider || 'groq') as ProviderId;
-    const modelId: string = body.modelId || body.model || 'openai/gpt-oss-120b';
+    const providerId: ProviderId = (body.providerId || body.provider || 'gemini') as ProviderId;
+    const rawModel: string = body.modelId || body.model || '';
+    const modelId = (!rawModel || rawModel === 'default') ? (DEFAULT_PROVIDER_MODELS[providerId] || 'gemini-2.5-flash') : rawModel;
     const messages: ChatMessage[] = body.messages || [];
     const customApiKey: string | undefined = body.customApiKey || body.customKey;
     const {
@@ -27,7 +46,12 @@ export async function POST(req: NextRequest) {
       reasoningEffort,
     } = body;
 
-    console.log(`[AI_STREAM] Request for Provider: "${providerId}", Model: "${modelId}", Messages: ${messages.length}`);
+    const lastMsg = messages[messages.length - 1];
+    const safePreview = (lastMsg?.content || '').slice(0, 50).replace(/\n/g, ' ');
+
+    console.log(
+      `[CHAT_RUNTIME] chatId=${chatId} provider=${providerId} model=${modelId} messageCount=${messages.length} lastRole=${lastMsg?.role} preview="${safePreview}"`
+    );
 
     if (!providerId || !modelId || messages.length === 0) {
       return NextResponse.json(
@@ -35,6 +59,7 @@ export async function POST(req: NextRequest) {
         { status: 400 }
       );
     }
+
 
     let apiKey = customApiKey;
 
@@ -54,7 +79,6 @@ export async function POST(req: NextRequest) {
     }
 
     // 2. Derive authenticated user and fetch stored encrypted key if needed
-    const streamStartTime = Date.now();
     const supabase = await createClient();
     const {
       data: { user },
@@ -81,7 +105,16 @@ export async function POST(req: NextRequest) {
     const lastUserMsg = [...messages].reverse().find((m) => m.role === 'user');
     const queryText = (lastUserMsg?.content || '').trim().toLowerCase();
 
-    // 3. Multi-turn Pending Action Confirmation Check ("yes", "sure", "proceed", "create")
+    // Shared ToolExecutionContext for this turn
+    const toolContext: ToolExecutionContext = {
+      userId: user?.id,
+      chatId,
+      providerId,
+      modelId,
+      supabaseClient: supabase,
+    };
+
+    // 3. Multi-turn Pending Action Confirmation
     if (user && chatId) {
       const isAffirmative = /^(yes|yeah|yep|sure|proceed|confirm|do it|create it|go ahead|please do)$/i.test(queryText);
       if (isAffirmative) {
@@ -91,7 +124,8 @@ export async function POST(req: NextRequest) {
             supabase,
             user.id,
             activeAction.id,
-            `exec_${Date.now()}`
+            `exec_${generateCallId()}`,
+            toolContext
           );
 
           finalSystemPrompt += `\n\n<runtime_action_execution>
@@ -104,7 +138,7 @@ Directive: The pending action execution has ALREADY completed. Acknowledge and e
       }
     }
 
-    // 4. Memory Intent & Retrieval
+    // 4. Memory Intent & Pre-Stream Execution (routed strictly through ToolRouter)
     if (user) {
       try {
         const intent = detectMemoryIntent(lastUserMsg?.content || '');
@@ -112,27 +146,27 @@ Directive: The pending action execution has ALREADY completed. Acknowledge and e
 
         if (intent.category !== 'NONE') {
           if (intent.category === 'REMEMBER' && intent.extractedFact) {
-            const result = await executeMemoryTool(
+            const memoryCallId = generateCallId();
+            const memoryResult = await toolRouter.executeToolCall(
               {
-                supabase,
-                userId: user.id,
-                isUserExplicit: true,
-                sourceChatId: chatId,
+                toolId: 'memory',
+                toolName: 'makkari_memory',
+                callId: memoryCallId,
+                arguments: {
+                  action: 'remember',
+                  content: intent.extractedFact,
+                  type: intent.inferredType,
+                },
               },
-              {
-                operation: 'remember',
-                content: intent.extractedFact,
-                type: intent.inferredType,
-              }
+              toolContext
             );
 
-            if (result.success) {
+            if (memoryResult.success) {
               toolExecutionBlock = `\n\n<runtime_tool_execution>
 Tool: memory
 Operation: remember
 Status: SUCCESS
-Action: ${result.action}
-Memory Content: "${result.memory?.content || intent.extractedFact}"
+Memory Content: "${intent.extractedFact}"
 Directive: Memory persistence has ALREADY completed successfully for this fact. Do NOT call the memory tool again in this response. Acknowledge naturally and concisely that you have saved/updated this in memory.
 </runtime_tool_execution>`;
             }
@@ -157,7 +191,7 @@ Directive: Memory persistence has ALREADY completed successfully for this fact. 
       }
     }
 
-    // 5. Capability Resolution with Output Contract
+    // 5. Capability Resolution
     const resolvedCaps = await resolveTurnCapabilities({
       userId: user?.id,
       chatId,
@@ -170,228 +204,55 @@ Directive: Memory persistence has ALREADY completed successfully for this fact. 
       finalSystemPrompt += '\n\n' + resolvedCaps.systemPromptAdditions;
     }
 
-    const adapter = getAIProvider(providerId);
+    // 6. TurnState Initialization
+    const abortController = new AbortController();
+    req.signal.addEventListener('abort', () => abortController.abort());
 
-    const chatReq: ChatRequest = {
-      chatId,
-      modelId,
-      messages,
-      systemPrompt: finalSystemPrompt,
-      apiKey,
-      temperature,
-      reasoningEffort,
-      abortSignal: req.signal,
-    };
+    const turnState = createTurnState({
+      conversationId: chatId,
+      userId: user?.id,
+      initialMessages: messages,
+      model: null,
+      abortController,
+      environment: process.env.NODE_ENV === 'development' ? 'development' : 'production',
+    });
 
-    const streamIterator = adapter.streamChat(chatReq);
-    const iterator = streamIterator[Symbol.asyncIterator]();
-    let firstResult: IteratorResult<any>;
-
-    try {
-      firstResult = await iterator.next();
-    } catch (err: unknown) {
-      console.error('[AI_STREAM] Upstream initialization error:', err);
-      const normalized = adapter.normalizeError(err);
-      return NextResponse.json(
-        {
-          error: 'PROVIDER_ERROR',
-          provider: providerId,
-          code: normalized.code || 'PROVIDER_ERROR',
-          message: normalized.userMessage || normalized.message,
-          retryable: normalized.retryable ?? false,
-        },
-        { status: normalized.status && normalized.status >= 400 && normalized.status < 600 ? normalized.status : 502 }
-      );
-    }
-
-    if (!firstResult || firstResult.done) {
-      return NextResponse.json(
-        {
-          error: 'PROVIDER_ERROR',
-          provider: providerId,
-          code: 'EMPTY_RESPONSE',
-          message: 'The AI provider returned an empty response.',
-          retryable: true,
-        },
-        { status: 502 }
-      );
-    }
-
-    const firstChunk = firstResult.value;
-    if (firstChunk.type === 'error') {
-      const err = firstChunk.error;
-      return NextResponse.json(
-        {
-          error: 'PROVIDER_ERROR',
-          provider: providerId,
-          code: err.code || 'PROVIDER_ERROR',
-          message: err.userMessage || err.message,
-          retryable: err.retryable ?? false,
-        },
-        { status: err.status && err.status >= 400 && err.status < 600 ? err.status : 502 }
-      );
-    }
+    // Attach turnId to toolContext
+    toolContext.turnId = turnState.turnId;
 
     const encoder = new TextEncoder();
-    const parser = new StatefulToolProtocolParser();
-    let accumulatedContent = '';
 
+    // 7. Hand off completely to QueryEngine inside the streaming response
     const stream = new ReadableStream({
       async start(controller) {
-        // Initialize Centralized Canonical Event Bus
         const eventBus = new CanonicalEventBus(chatId, (envelope) => {
           controller.enqueue(encoder.encode(CanonicalEventBus.formatSSE(envelope)));
         });
 
-        // 1. Emit stream & thinking start
         eventBus.emit({ type: 'STREAM_START' });
         eventBus.emit({ type: 'THINKING_START' });
 
-        // Helper to execute and emit parsed tool calls
-        async function handleToolCall(tc: ParsedToolCall) {
-          if (tc.name === 'makkari_artifact' || tc.rawProtocol.includes('makkari_artifact')) {
-            const filename = tc.parameters.filename || tc.parameters.file_name || 'index.html';
-            const content = tc.parameters.content || '';
-            const title = tc.parameters.title || 'Interactive Web Page';
-            const language = tc.parameters.language || (filename.endsWith('.html') ? 'html' : 'plaintext');
-
-            eventBus.emit({
-              type: 'TOOL_CALL',
-              tool: 'makkari_artifact',
-              callId: `call_${Date.now()}`,
-              parameters: tc.parameters,
-            });
-
-            eventBus.emit({
-              type: 'THINKING_STATUS',
-              status: `Creating artifact: ${filename}...`,
-            });
-
-            if (user && chatId && content) {
-              try {
-                const createdArtifact = await createConversationArtifact(supabase, user.id, chatId, {
-                  title,
-                  artifact_type: filename.endsWith('.html') ? 'web' : 'code',
-                  files: [
-                    {
-                      filename,
-                      content,
-                      language,
-                      is_entry_file: true,
-                    },
-                  ],
-                });
-
-                // Emit structured canonical ARTIFACT_CREATE event
-                eventBus.emit({
-                  type: 'ARTIFACT_CREATE',
-                  artifact: {
-                    artifactId: createdArtifact.id,
-                    title: createdArtifact.title,
-                    artifactType: createdArtifact.artifact_type as any,
-                    version: 1,
-                    files: createdArtifact.files.map((f: any) => ({
-                      id: f.id,
-                      filename: f.filename,
-                      language: f.language,
-                      mimeType: f.mime_type,
-                      sizeBytes: f.size_bytes,
-                      content: f.content,
-                      isEntryFile: f.is_entry_file,
-                    })),
-                  },
-                });
-
-                eventBus.emit({
-                  type: 'TOOL_RESULT',
-                  callId: `call_${Date.now()}`,
-                  result: {
-                    success: true,
-                    summary: `Created artifact ${createdArtifact.title}`,
-                    output: { artifactId: createdArtifact.id },
-                  },
-                });
-              } catch (artErr: any) {
-                console.error('[AI_STREAM] Error creating artifact:', artErr);
-                eventBus.emit({
-                  type: 'TOOL_RESULT',
-                  callId: `call_${Date.now()}`,
-                  result: {
-                    success: false,
-                    error: {
-                      code: 'ARTIFACT_CREATION_FAILED',
-                      message: artErr.message || 'Failed to save artifact',
-                      retryable: true,
-                    },
-                  },
-                });
-              }
-            }
-          }
-        }
-
         try {
-          // Process first chunk
-          if (firstChunk.type === 'text' && firstChunk.content) {
-            const parseRes = parser.processChunk(firstChunk.content);
-            if (parseRes.textDelta) {
-              accumulatedContent += parseRes.textDelta;
-              eventBus.emit({ type: 'TEXT_DELTA', delta: parseRes.textDelta });
-            }
-            for (const tc of parseRes.completedToolCalls) {
-              await handleToolCall(tc);
-            }
-          }
-
-          // Process subsequent chunks
-          while (true) {
-            if (req.signal.aborted) {
-              eventBus.emit({ type: 'CANCELLED', reason: 'Client cancelled request' });
-              break;
-            }
-
-            const next = await iterator.next();
-            if (next.done) break;
-
-            const chunk = next.value;
-
-            if (chunk.type === 'error') {
-              eventBus.emit({
-                type: 'ERROR',
-                message: chunk.error.userMessage || chunk.error.message,
-                code: chunk.error.code,
-                retryable: chunk.error.retryable,
-              });
-              break;
-            }
-
-            if (chunk.type === 'text' && chunk.content) {
-              const parseRes = parser.processChunk(chunk.content);
-              if (parseRes.textDelta) {
-                accumulatedContent += parseRes.textDelta;
-                eventBus.emit({ type: 'TEXT_DELTA', delta: parseRes.textDelta });
-              }
-              for (const tc of parseRes.completedToolCalls) {
-                await handleToolCall(tc);
-              }
-            }
-          }
-
-          // Flush parser buffer
-          const flushed = parser.flush();
-          if (flushed.textDelta) {
-            accumulatedContent += flushed.textDelta;
-            eventBus.emit({ type: 'TEXT_DELTA', delta: flushed.textDelta });
-          }
-          for (const tc of flushed.completedToolCalls) {
-            await handleToolCall(tc);
-          }
-
-          // Emit single terminal DONE event if not already terminal
+          await queryEngine.executeTurn({
+            state: turnState,
+            providerId,
+            modelId,
+            apiKey,
+            temperature,
+            reasoningEffort,
+            systemPrompt: finalSystemPrompt,
+            messages,
+            eventBus,
+            toolContext,
+          });
+        } catch (streamErr: any) {
           if (!eventBus.isTerminal()) {
-            eventBus.emit({ type: 'DONE' });
+            eventBus.emit({
+              type: 'ERROR',
+              message: streamErr.message || 'Stream execution failed',
+            });
           }
-
+        } finally {
           controller.close();
 
           // Background post-chat memory ingestion
@@ -400,14 +261,6 @@ Directive: Memory persistence has ALREADY completed successfully for this fact. 
               console.error('[AI_STREAM] Post-chat worker background error:', err)
             );
           }
-        } catch (streamErr: any) {
-          if (!eventBus.isTerminal()) {
-            eventBus.emit({
-              type: 'ERROR',
-              message: streamErr.message || 'Stream processing interrupted',
-            });
-          }
-          controller.close();
         }
       },
     });

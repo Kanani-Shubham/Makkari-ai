@@ -115,25 +115,52 @@ export function ThinkingPanel({
       {isOpen && (
         <div className="px-4 py-3 border-t border-[#E8E5E0] dark:border-[#2A2A2A] bg-white dark:bg-[#161616] space-y-2 text-[#4A4A4A] dark:text-[#B0B0B0] font-sans leading-relaxed animate-in fade-in duration-150">
           {renderedEvents.length > 0 ? (
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {renderedEvents.map((evt, idx) => (
-                <div key={idx} className="flex items-center gap-2">
-                  {evt.type === 'artifact' ? (
+                <div key={idx} className="flex items-center gap-2 text-xs">
+                  {evt.status === 'failed' ? (
+                    <AlertCircle className="w-3.5 h-3.5 text-amber-500 shrink-0" />
+                  ) : evt.type === 'artifact' ? (
                     <Layers className="w-3.5 h-3.5 text-[#D97757] shrink-0" />
-                  ) : evt.type === 'tool' || evt.type === 'mcp' ? (
-                    <Wrench className="w-3.5 h-3.5 text-blue-500 shrink-0" />
                   ) : evt.status === 'completed' ? (
-                    <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+                    <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
+                  ) : evt.type === 'tool' || evt.type === 'mcp' ? (
+                    isThinkingOrExecuting && idx === renderedEvents.length - 1 ? (
+                      <Loader2 className="w-3.5 h-3.5 text-blue-500 animate-spin shrink-0" />
+                    ) : (
+                      <Wrench className="w-3.5 h-3.5 text-blue-500 shrink-0" />
+                    )
+                  ) : isThinkingOrExecuting && idx === renderedEvents.length - 1 ? (
+                    <Loader2 className="w-3.5 h-3.5 text-[#D97757] animate-spin shrink-0" />
                   ) : (
-                    <span className="text-[#D97757] font-bold">•</span>
+                    <Check className="w-3.5 h-3.5 text-emerald-500 shrink-0" />
                   )}
-                  <span className="truncate">{evt.text}</span>
+                  <span className={cn(
+                    'truncate',
+                    isThinkingOrExecuting && idx === renderedEvents.length - 1
+                      ? 'text-[#1A1A1A] dark:text-[#E5E5E5] font-medium'
+                      : 'text-[#4A4A4A] dark:text-[#B0B0B0]'
+                  )}>
+                    {evt.text}
+                  </span>
                 </div>
               ))}
             </div>
+
+          ) : summary && summary.trim().length > 0 ? (
+            <div className="flex items-center gap-2">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#D97757] animate-pulse shrink-0" />
+              <span className="text-xs font-medium text-[#1A1A1A] dark:text-[#E5E5E5]">{summary}</span>
+            </div>
+          ) : isThinkingOrExecuting ? (
+            <div className="flex items-center gap-2 text-[#6B6B6B] dark:text-[#9E9E9E]">
+              <span className="w-1.5 h-1.5 rounded-full bg-[#D97757] animate-pulse shrink-0" />
+              <span>Analyzing request & planning response...</span>
+            </div>
           ) : (
-            <div className="flex items-center gap-2 text-[#6B6B6B] dark:text-[#9E9E9E] italic">
-              <span>Synthesizing response...</span>
+            <div className="flex items-center gap-2 text-[#6B6B6B] dark:text-[#9E9E9E] text-[11px]">
+              <Check className="w-3 h-3 text-emerald-500 shrink-0" />
+              <span>Response generated</span>
             </div>
           )}
         </div>
@@ -141,3 +168,4 @@ export function ThinkingPanel({
     </div>
   );
 }
+

@@ -31,9 +31,11 @@ export async function GET() {
           username: user.email?.split('@')[0] || 'user',
           avatar_url: user.user_metadata?.avatar_url || '',
           theme: 'light',
-          preferred_model_id: 'gemini-2.0-flash',
+          preferred_model_id: 'gemini-1.5-flash',
         },
       });
+
+
     }
 
     return NextResponse.json({ profile });
