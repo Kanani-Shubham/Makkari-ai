@@ -90,12 +90,15 @@ interface ChatStoreState {
   loadMessagesFromSupabase: (chatId: string) => Promise<void>;
   createNewChat: (providerId: ProviderId, modelId: string, initialTitle?: string) => Promise<string>;
   addMessage: (chatId: string, message: ChatMessage) => Promise<string>;
+  upsertMessage: (chatId: string, message: ChatMessage) => void;
+  updateStreamingMessage: (chatId: string, messageId: string, updates: Partial<ChatMessage>) => void;
   saveAssistantMessage: (
     chatId: string,
     content: string,
     providerId?: ProviderId,
     modelId?: string,
-    metadata?: Record<string, unknown>
+    metadata?: Record<string, unknown>,
+    messageId?: string
   ) => Promise<void>;
   updateLastAssistantMessage: (chatId: string, content: string, reasoning?: string, durationMs?: number) => void;
   deleteMessage: (chatId: string, messageId: string) => Promise<void>;
@@ -110,6 +113,7 @@ interface ChatStoreState {
   abortCurrentStream: () => void;
   setActiveAbortController: (ctrl: AbortController | null) => void;
 }
+
 
 
 export const useChatStore = create<ChatStoreState>((set, get) => ({
@@ -250,14 +254,87 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     return tempId;
   },
 
-  // 4. Add User/Assistant Message and persist to Supabase
+  // 4. Upsert Message in client state (ID-based reconciliation)
+  upsertMessage: (chatId, message) => {
+    set((state) => {
+      const chatMsgs = state.messages[chatId] || [];
+      const msgId = message.id || generateUUID();
+      const existingIdx = chatMsgs.findIndex((m) => m.id === msgId);
+
+      if (existingIdx !== -1) {
+        const updated = [...chatMsgs];
+        updated[existingIdx] = {
+          ...updated[existingIdx],
+          ...message,
+          id: msgId,
+        };
+        return { messages: { ...state.messages, [chatId]: updated } };
+      }
+
+      return {
+        messages: {
+          ...state.messages,
+          [chatId]: [
+            ...chatMsgs,
+            { ...message, id: msgId, created_at: message.created_at || new Date().toISOString() },
+          ],
+        },
+      };
+    });
+  },
+
+  // 5. Update streaming message in-place by exact message ID
+  updateStreamingMessage: (chatId, messageId, updates) => {
+    set((state) => {
+      const chatMsgs = state.messages[chatId] || [];
+      const idx = chatMsgs.findIndex((m) => m.id === messageId);
+      if (idx === -1) {
+        return {
+          messages: {
+            ...state.messages,
+            [chatId]: [
+              ...chatMsgs,
+              {
+                id: messageId,
+                role: 'assistant',
+                content: '',
+                created_at: new Date().toISOString(),
+                ...updates,
+              } as ChatMessage,
+            ],
+          },
+        };
+      }
+
+      const updated = [...chatMsgs];
+      const existing = updated[idx];
+      const existingMetadata = existing.metadata || {};
+      const newMetadata = updates.metadata ? { ...existingMetadata, ...updates.metadata } : existingMetadata;
+
+      updated[idx] = {
+        ...existing,
+        ...updates,
+        metadata: newMetadata,
+      };
+
+      return { messages: { ...state.messages, [chatId]: updated } };
+    });
+  },
+
+  // 6. Add User/Assistant Message and persist to Supabase
   addMessage: async (chatId, message) => {
     const tempMsgId = message.id || generateUUID();
     const fullMsg: ChatMessage = { ...message, id: tempMsgId, created_at: new Date().toISOString() };
 
-    // Optimistic update
+    // Optimistic update using ID-based upsert
     set((state) => {
       const chatMsgs = state.messages[chatId] || [];
+      const existingIdx = chatMsgs.findIndex((m) => m.id === tempMsgId);
+      if (existingIdx !== -1) {
+        const updated = [...chatMsgs];
+        updated[existingIdx] = fullMsg;
+        return { messages: { ...state.messages, [chatId]: updated } };
+      }
       return {
         messages: {
           ...state.messages,
@@ -271,6 +348,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: tempMsgId,
           role: message.role,
           content: message.content,
           modelId: message.model_id,
@@ -318,7 +396,7 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     return tempMsgId;
   },
 
-  // 5. Update last assistant message during stream with reasoning and content
+  // 7. Update last assistant message during stream with reasoning and content
   updateLastAssistantMessage: (chatId, content, reasoning, durationMs) => {
     set((state) => {
       const chatMsgs = state.messages[chatId] || [];
@@ -354,13 +432,14 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
     });
   },
 
-  // 6. Save Assistant Message into Supabase after stream completes
-  saveAssistantMessage: async (chatId, content, providerId, modelId, metadata) => {
+  // 8. Save Assistant Message into Supabase after stream completes
+  saveAssistantMessage: async (chatId, content, providerId, modelId, metadata, messageId) => {
     try {
-      await fetch(`/api/chats/${chatId}/messages`, {
+      const res = await fetch(`/api/chats/${chatId}/messages`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          id: messageId,
           role: 'assistant',
           content,
           providerId,
@@ -368,10 +447,25 @@ export const useChatStore = create<ChatStoreState>((set, get) => ({
           metadata,
         }),
       });
+
+      if (res.ok && messageId) {
+        const data = await res.json().catch(() => ({}));
+        if (data.message?.id && data.message.id !== messageId) {
+          set((state) => ({
+            messages: {
+              ...state.messages,
+              [chatId]: (state.messages[chatId] || []).map((m) =>
+                m.id === messageId ? { ...m, id: data.message.id } : m
+              ),
+            },
+          }));
+        }
+      }
     } catch (err) {
       console.error('[CHAT_STORE] Error saving assistant response to Supabase:', err);
     }
   },
+
 
   // 7. Delete Message from Supabase
   deleteMessage: async (chatId, messageId) => {

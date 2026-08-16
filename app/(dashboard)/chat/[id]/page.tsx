@@ -31,6 +31,9 @@ export default function ChatDetailPage({ params }: PageProps) {
     messages,
     loadMessagesFromSupabase,
     addMessage,
+    upsertMessage,
+    updateStreamingMessage,
+    saveAssistantMessage,
     deleteMessage,
     isStreaming,
     setIsStreaming,
@@ -41,10 +44,7 @@ export default function ChatDetailPage({ params }: PageProps) {
 
   const { artifacts, isWorkspaceOpen, openArtifact, addOrUpdateArtifact } = useArtifactStore();
 
-  const [streamingContent, setStreamingContent] = useState('');
-  const [streamingReasoning, setStreamingReasoning] = useState('');
-  const [streamingEvents, setStreamingEvents] = useState<ThinkingEventItem[]>([]);
-  const [streamingArtifacts, setStreamingArtifacts] = useState<ConversationArtifact[]>([]);
+  const [currentStreamingMsgId, setCurrentStreamingMsgId] = useState<string | null>(null);
   const [streamError, setStreamError] = useState<{ message: string; code?: string; retryable?: boolean } | null>(null);
 
   const [isLoadingMessages, setIsLoadingMessages] = useState(true);
@@ -94,7 +94,6 @@ export default function ChatDetailPage({ params }: PageProps) {
     const distanceFromBottom = scrollHeight - scrollTop - clientHeight;
     const isNear = distanceFromBottom <= 60;
     isNearBottomRef.current = isNear;
-
     if (isNear) {
       setShowNewResponseButton(false);
     }
@@ -133,7 +132,7 @@ export default function ChatDetailPage({ params }: PageProps) {
     } else if (isStreaming && !isNearBottomRef.current) {
       setShowNewResponseButton(true);
     }
-  }, [chatMessages.length, isStreaming, streamingContent, streamError]);
+  }, [chatMessages.length, isStreaming, streamError]);
 
   const executeStream = async (
     userContent?: string,
@@ -149,13 +148,29 @@ export default function ChatDetailPage({ params }: PageProps) {
     const controller = new AbortController();
     abortControllerRef.current = controller;
 
+    // Single canonical assistant message identity for the entire turn
+    const assistantMessageId = crypto.randomUUID();
+    setCurrentStreamingMsgId(assistantMessageId);
     setIsStreaming(true);
-    setStreamingContent('');
-    setStreamingReasoning('');
-    setStreamingEvents([]);
-    setStreamingArtifacts([]);
     setStreamError(null);
     setShowNewResponseButton(false);
+
+    // Initial placeholder in client messages
+    upsertMessage(chatId, {
+      id: assistantMessageId,
+      role: 'assistant',
+      content: '',
+      model_id: activeModel,
+      provider_id: activeProvider,
+      created_at: new Date().toISOString(),
+      metadata: {
+        reasoning: {
+          available: false,
+          summary: '',
+          events: [],
+        },
+      },
+    });
 
     const startTime = Date.now();
     let accumulatedText = '';
@@ -168,10 +183,14 @@ export default function ChatDetailPage({ params }: PageProps) {
       let historyToUse: Array<{ role: 'user' | 'assistant' | 'system'; content: string }> = [];
 
       if (explicitHistory && explicitHistory.length > 0) {
-        historyToUse = explicitHistory.map((m) => ({ role: m.role as any, content: m.content }));
+        historyToUse = explicitHistory
+          .filter((m) => m.id !== assistantMessageId)
+          .map((m) => ({ role: m.role as any, content: m.content }));
       } else {
         const currentList = messages[chatId] || [];
-        historyToUse = currentList.map((m) => ({ role: m.role as any, content: m.content }));
+        historyToUse = currentList
+          .filter((m) => m.id !== assistantMessageId)
+          .map((m) => ({ role: m.role as any, content: m.content }));
       }
 
       if (userContent && userContent.trim()) {
@@ -192,7 +211,7 @@ export default function ChatDetailPage({ params }: PageProps) {
       const preview = (lastMsg?.content || '').slice(0, 50).replace(/\n/g, ' ');
 
       console.log(
-        `[CHAT_RUNTIME] chatId=${chatId} turnId=${turnId} provider=${activeProvider} model=${activeModel} messageCount=${historyToUse.length} lastRole=${lastMsg?.role} preview="${preview}"`
+        `[CHAT_RUNTIME] chatId=${chatId} turnId=${turnId} msgId=${assistantMessageId} provider=${activeProvider} model=${activeModel} messageCount=${historyToUse.length} lastRole=${lastMsg?.role} preview="${preview}"`
       );
 
       const response = await fetch('/api/chat/stream', {
@@ -259,7 +278,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                       status: 'started',
                       timestamp: Date.now(),
                     });
-                    setStreamingEvents([...accumulatedEvents]);
                   }
                 } else if (evt.type === 'THINKING_START') {
                   if (!accumulatedEvents.some((e) => e.text.includes('Analyzing'))) {
@@ -269,18 +287,15 @@ export default function ChatDetailPage({ params }: PageProps) {
                       status: 'started',
                       timestamp: Date.now(),
                     });
-                    setStreamingEvents([...accumulatedEvents]);
                   }
                 } else if (evt.type === 'THINKING_STATUS') {
                   accumulatedReasoning = evt.status;
-                  setStreamingReasoning(accumulatedReasoning);
                   accumulatedEvents.push({
                     type: 'status',
                     text: evt.status,
                     status: 'started',
                     timestamp: Date.now(),
                   });
-                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'TOOL_CALL') {
                   const toolName = evt.tool || 'tool';
                   accumulatedEvents.push({
@@ -290,7 +305,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                     status: 'started',
                     timestamp: Date.now(),
                   });
-                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'TOOL_PROGRESS') {
                   const progressMsg = evt.message || `Running ${evt.tool || 'tool'}…`;
                   const lastToolIdx = [...accumulatedEvents]
@@ -311,7 +325,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                       timestamp: Date.now(),
                     });
                   }
-                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'TOOL_RESULT') {
                   const resSuccess = evt.result?.success !== false;
                   const toolName = evt.tool || 'Tool';
@@ -334,10 +347,8 @@ export default function ChatDetailPage({ params }: PageProps) {
                       timestamp: Date.now(),
                     });
                   }
-                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'TEXT_DELTA') {
                   accumulatedText += evt.delta || '';
-                  setStreamingContent(accumulatedText);
                 } else if (evt.type === 'ARTIFACT_CREATE' && evt.artifact) {
                   const artPayload = evt.artifact as ArtifactEventPayload;
                   const newArt: ConversationArtifact = {
@@ -367,7 +378,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                   };
 
                   turnArtifacts.push(newArt);
-                  setStreamingArtifacts((prev) => [...prev.filter((a) => a.id !== newArt.id), newArt]);
                   addOrUpdateArtifact(chatId, newArt);
                   openArtifact(newArt);
                   accumulatedEvents.push({
@@ -376,7 +386,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                     status: 'completed',
                     timestamp: Date.now(),
                   });
-                  setStreamingEvents([...accumulatedEvents]);
                 } else if (evt.type === 'CANCELLED') {
                   accumulatedEvents.push({
                     type: 'status',
@@ -384,8 +393,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                     status: 'failed',
                     timestamp: Date.now(),
                   });
-                  setStreamingEvents([...accumulatedEvents]);
-                  setStreamingReasoning('Generation stopped');
                   break;
                 } else if (evt.type === 'ERROR') {
                   accumulatedEvents.push({
@@ -394,7 +401,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                     status: 'failed',
                     timestamp: Date.now(),
                   });
-                  setStreamingEvents([...accumulatedEvents]);
                   setStreamError({ message: evt.message, code: evt.code, retryable: evt.retryable });
                   break;
                 } else if (evt.type === 'DONE') {
@@ -404,14 +410,31 @@ export default function ChatDetailPage({ params }: PageProps) {
               // 2. Legacy fallback
               else if (chunk.type === 'text') {
                 accumulatedText += chunk.content || '';
-                setStreamingContent(accumulatedText);
               } else if (chunk.type === 'artifact' && chunk.artifact) {
                 const newArt = chunk.artifact as ConversationArtifact;
                 turnArtifacts.push(newArt);
-                setStreamingArtifacts((prev) => [...prev.filter((a) => a.id !== newArt.id), newArt]);
                 addOrUpdateArtifact(chatId, newArt);
                 openArtifact(newArt);
               }
+
+              // Update the single canonical assistant message in-place
+              updateStreamingMessage(chatId, assistantMessageId, {
+                content: accumulatedText,
+                metadata: {
+                  durationMs: Date.now() - startTime,
+                  provider: activeProvider,
+                  artifacts: turnArtifacts.length > 0 ? turnArtifacts : undefined,
+                  reasoning: (accumulatedReasoning || accumulatedEvents.length > 0)
+                    ? {
+                        available: true,
+                        summary: accumulatedReasoning || 'Analyzing request…',
+                        provider: activeProvider,
+                        events: accumulatedEvents,
+                        durationMs: Date.now() - startTime,
+                      }
+                    : undefined,
+                },
+              });
             } catch {
               // Ignore partial JSON
             }
@@ -419,25 +442,29 @@ export default function ChatDetailPage({ params }: PageProps) {
         }
       }
 
-      // Persist final assistant message
+      // Persist final assistant message authoritatively without adding a duplicate
       if (accumulatedText.trim().length > 0 || turnArtifacts.length > 0) {
-        await addMessage(chatId, {
-          role: 'assistant',
-          content: accumulatedText,
-          model_id: activeModel,
-          metadata: {
-            durationMs: Date.now() - startTime,
+        const finalMetadata = {
+          durationMs: Date.now() - startTime,
+          provider: activeProvider,
+          artifacts: turnArtifacts.length > 0 ? turnArtifacts : undefined,
+          reasoning: accumulatedEvents.length > 0 ? {
+            available: true,
+            summary: accumulatedReasoning || 'Response synthesized',
             provider: activeProvider,
-            artifacts: turnArtifacts.length > 0 ? turnArtifacts : undefined,
-            reasoning: accumulatedEvents.length > 0 ? {
-              available: true,
-              summary: accumulatedReasoning || 'Response synthesized',
-              provider: activeProvider,
-              durationMs: Date.now() - startTime,
-              events: accumulatedEvents,
-            } : undefined,
-          },
-        });
+            durationMs: Date.now() - startTime,
+            events: accumulatedEvents,
+          } : undefined,
+        };
+
+        await saveAssistantMessage(
+          chatId,
+          accumulatedText,
+          activeProvider,
+          activeModel,
+          finalMetadata,
+          assistantMessageId
+        );
       }
 
     } catch (err: any) {
@@ -449,8 +476,7 @@ export default function ChatDetailPage({ params }: PageProps) {
       }
     } finally {
       setIsStreaming(false);
-      setStreamingContent('');
-      setStreamingReasoning('');
+      setCurrentStreamingMsgId(null);
       abortControllerRef.current = null;
     }
   };
@@ -467,7 +493,7 @@ export default function ChatDetailPage({ params }: PageProps) {
     const currentMsgs = messages[chatId] || [];
     const nextHistory = [...currentMsgs, userMsg];
 
-    // Optimistically add and stream immediately without race condition
+    // Optimistically add and stream immediately
     addMessage(chatId, userMsg);
     executeStream(content, attachments, nextHistory);
   };
@@ -477,6 +503,7 @@ export default function ChatDetailPage({ params }: PageProps) {
     if (abortControllerRef.current) {
       abortControllerRef.current.abort();
       setIsStreaming(false);
+      setCurrentStreamingMsgId(null);
     }
   };
 
@@ -542,45 +569,25 @@ export default function ChatDetailPage({ params }: PageProps) {
                 Send a message to start this conversation.
               </div>
             ) : (
-              chatMessages.map((msg: ChatMessage, index: number) => (
-                <React.Fragment key={msg.id || index}>
-                  <MessageItem
-                    message={msg}
-                    onDelete={() => msg.id && deleteMessage(chatId, msg.id)}
-                  />
-                  {msg.role === 'assistant' && index === chatMessages.length - 1 && chatArtifacts.length > 0 && (
-                    <div className="pl-10">
-                      {chatArtifacts.map((art: ConversationArtifact) => (
-                        <ArtifactCard key={art.id} artifact={art} />
-                      ))}
-                    </div>
-                  )}
-                </React.Fragment>
-              ))
-            )}
-
-            {/* In-Flight Streaming Message */}
-            {isStreaming && (
-              <MessageItem
-                message={{
-                  role: 'assistant',
-                  content: streamingContent,
-                  model_id: selectedModel,
-                  metadata: {
-                    reasoning: (streamingReasoning || streamingEvents.length > 0)
-                      ? {
-                          available: true,
-                          summary: streamingReasoning || 'Analyzing request…',
-                          provider: selectedProvider,
-                          events: streamingEvents,
-                        }
-                      : undefined,
-
-                    artifacts: streamingArtifacts.length > 0 ? streamingArtifacts : undefined,
-                  },
-                }}
-                isStreaming={true}
-              />
+              chatMessages.map((msg: ChatMessage, index: number) => {
+                const isThisMsgStreaming = isStreaming && msg.id === currentStreamingMsgId;
+                return (
+                  <React.Fragment key={msg.id || index}>
+                    <MessageItem
+                      message={msg}
+                      isStreaming={isThisMsgStreaming}
+                      onDelete={() => msg.id && deleteMessage(chatId, msg.id)}
+                    />
+                    {msg.role === 'assistant' && index === chatMessages.length - 1 && chatArtifacts.length > 0 && (
+                      <div className="pl-10">
+                        {chatArtifacts.map((art: ConversationArtifact) => (
+                          <ArtifactCard key={art.id} artifact={art} />
+                        ))}
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })
             )}
 
             {/* Bottom Sentinel for Intersection & Auto-scroll */}
@@ -589,16 +596,18 @@ export default function ChatDetailPage({ params }: PageProps) {
             {/* Error Banner */}
             {streamError && (
               <div className="p-4 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-900 dark:text-amber-200 text-xs space-y-2">
-                <div className="flex items-start gap-3">
-                  <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
-                  <div className="flex-1 min-w-0">
-                    <div className="font-semibold text-sm">
-                      {streamError.code === 'MODEL_NOT_AVAILABLE' ? 'Model Unavailable' : 'Generation Interrupted'}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="flex items-start gap-3 flex-1 min-w-0">
+                    <AlertCircle className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0 mt-0.5" />
+                    <div className="flex-1 min-w-0">
+                      <div className="font-semibold text-sm">
+                        {streamError.code === 'MODEL_NOT_AVAILABLE' ? 'Model Unavailable' : 'Generation Interrupted'}
+                      </div>
+                      <div className="mt-0.5 opacity-90">{streamError.message}</div>
+                      {streamError.code && (
+                        <div className="font-mono text-[10px] opacity-60 mt-0.5">Code: {streamError.code}</div>
+                      )}
                     </div>
-                    <div className="mt-0.5 opacity-90">{streamError.message}</div>
-                    {streamError.code && (
-                      <div className="font-mono text-[10px] opacity-60 mt-0.5">Code: {streamError.code}</div>
-                    )}
                   </div>
                   {streamError.retryable && (
                     <button
@@ -627,7 +636,6 @@ export default function ChatDetailPage({ params }: PageProps) {
                         .map((m: any) => (
                           <button
                             key={m.id}
-
                             type="button"
                             onClick={() => {
                               updateChatModel(chatId, activeProvider, m.id);
@@ -648,9 +656,9 @@ export default function ChatDetailPage({ params }: PageProps) {
                 )}
               </div>
             )}
-
           </div>
         </div>
+
 
         {/* Floating "↓ New response" button */}
         {showNewResponseButton && (

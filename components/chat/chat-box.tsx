@@ -34,6 +34,7 @@ export function ChatBox({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isSubmittingRef = useRef(false);
 
   // Auto resize textarea
   useEffect(() => {
@@ -156,14 +157,24 @@ export function ChatBox({
       return;
     }
 
+    if (isSubmittingRef.current) return;
+
     const trimmed = input.trim();
     if (!trimmed && attachments.length === 0) return;
 
-    onSendMessage(trimmed, attachments.length > 0 ? attachments : undefined);
-    setInput('');
-    setAttachments([]);
-    setUploadError(null);
+    isSubmittingRef.current = true;
+    try {
+      onSendMessage(trimmed, attachments.length > 0 ? attachments : undefined);
+      setInput('');
+      setAttachments([]);
+      setUploadError(null);
+    } finally {
+      setTimeout(() => {
+        isSubmittingRef.current = false;
+      }, 300);
+    }
   };
+
 
   return (
     <div

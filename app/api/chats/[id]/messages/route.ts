@@ -103,22 +103,31 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
       );
     }
 
-    const insertPayload = {
+    const insertPayload: Record<string, any> = {
       chat_id: chatId,
       user_id: user.id,
       role,
       content,
       model_id: modelId || null,
       provider_id: providerId || null,
-      token_count: { prompt: 0, completion: 0, total: 0 },
-      attachments: [],
-      created_at: new Date().toISOString(),
+      token_count: body.token_count || { prompt: 0, completion: 0, total: 0 },
+      attachments: body.attachments || [],
+      metadata: body.metadata || {},
+      created_at: body.created_at || new Date().toISOString(),
     };
 
-    const { data, error } = await supabase.from('messages').insert(insertPayload).select().single();
+    if (body.id) {
+      insertPayload.id = body.id;
+    }
+
+    const { data, error } = await supabase
+      .from('messages')
+      .upsert(insertPayload, { onConflict: 'id' })
+      .select()
+      .single();
 
     if (error) {
-      console.error('[MESSAGES_POST] Supabase insert message error:', error);
+      console.error('[MESSAGES_POST] Supabase upsert message error:', error);
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
@@ -132,6 +141,7 @@ export async function POST(req: NextRequest, { params }: { params: Promise<{ id:
     console.log('[MESSAGES_POST] Saved message successfully:', data.id);
 
     return NextResponse.json({ message: data });
+
   } catch (err: unknown) {
     const msg = err instanceof Error ? err.message : 'Unknown error';
     console.error('[MESSAGES_POST] Exception:', msg);
