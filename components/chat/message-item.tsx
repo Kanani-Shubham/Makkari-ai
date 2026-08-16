@@ -143,6 +143,35 @@ export function MessageItem({ message, onRegenerate, onDelete, isStreaming = fal
                 tr: ({ children }: any) => <MarkdownTr>{children}</MarkdownTr>,
                 th: ({ children }: any) => <MarkdownTh>{children}</MarkdownTh>,
                 td: ({ children }: any) => <MarkdownTd>{children}</MarkdownTd>,
+                img({ src, alt }: any) {
+                  return (
+                    <div className="my-3.5 rounded-2xl overflow-hidden border border-[#E8E5E0] dark:border-[#2E2E2E] bg-[#FAF9F6] dark:bg-[#161616] group/img relative max-w-xl">
+                      <img
+                        src={src}
+                        alt={alt || 'Generated Image'}
+                        className="w-full max-h-[500px] object-contain mx-auto"
+                        loading="lazy"
+                      />
+                      <div className="p-2.5 flex items-center justify-between border-t border-[#E8E5E0] dark:border-[#2E2E2E] bg-white/80 dark:bg-[#1A1A1A]/80 backdrop-blur-xs text-xs">
+                        <span className="text-[#6B6B6B] dark:text-[#9E9E9E] truncate font-medium">
+                          {alt || 'Generated Image'}
+                        </span>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <a
+                            href={src}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            download="makkari-generated-image.png"
+                            className="p-1 rounded-md text-[#6B6B6B] hover:text-[#1A1A1A] dark:hover:text-[#E5E5E5] hover:bg-[#EFECE6] dark:hover:bg-[#2A2A2A] transition-colors flex items-center gap-1"
+                            title="Open / Download Full Image"
+                          >
+                            <ExternalLink className="w-3.5 h-3.5" />
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                },
                 code({ className, children, ...props }: any) {
                   const match = /language-(\w+)/.exec(className || '');
                   const isInline = !match && !String(children).includes('\n');
@@ -170,6 +199,7 @@ export function MessageItem({ message, onRegenerate, onDelete, isStreaming = fal
               {message.content}
             </ReactMarkdown>
           </div>
+
 
           {/* Action Toolbar */}
           <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-1">

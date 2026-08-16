@@ -61,6 +61,17 @@ export class OpenRouterAdapter implements ProviderAdapter {
           m.id.includes('claude') ||
           m.id.includes('gpt-4');
 
+        const isImageGen =
+          m.id.includes('image') ||
+          m.id.includes('imagen') ||
+          m.id.includes('flux') ||
+          m.id.includes('dall-e') ||
+          m.id.includes('stable-diffusion') ||
+          m.id.includes('sdxl') ||
+          m.id.includes('recraft') ||
+          (m.architecture?.modality || '').includes('text->image') ||
+          (m.architecture?.modality || '').includes('image-out');
+
         const contextLen = m.context_length || 128000;
 
         return {
@@ -74,13 +85,13 @@ export class OpenRouterAdapter implements ProviderAdapter {
           capabilities: {
             text: true,
             vision: isVision,
-            imageGeneration: false,
+            imageGeneration: isImageGen,
             audioInput: false,
             audioOutput: false,
             videoInput: false,
             fileInput: true,
-            streaming: true,
-            tools: true,
+            streaming: !isImageGen || !m.id.includes('flux'),
+            tools: !isImageGen,
             reasoning: {
               supported: isReasoning,
               visible: isReasoning,
@@ -92,7 +103,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
           contextWindow: contextLen,
           maxOutputTokens: 8192,
           availability: 'available',
-          badge: isReasoning ? 'Reasoning' : isVision ? 'Multimodal' : 'Cloud AI',
+          badge: isImageGen ? 'Image AI' : isReasoning ? 'Reasoning' : isVision ? 'Multimodal' : 'Cloud AI',
         };
       });
     } catch (err: any) {
@@ -144,12 +155,25 @@ export class OpenRouterAdapter implements ProviderAdapter {
           provider: 'openrouter',
           status: 401,
           message: 'OpenRouter API Key is required.',
-          userMessage: 'OpenRouter API Key is missing. Please add your key in Settings or Model Hub.',
+          userMessage: 'OpenRouter API Key is missing. Please configure your key in Settings or Model Hub.',
           retryable: false,
         },
       };
       return;
     }
+
+    const isImageModel =
+      modelId.includes('image') ||
+      modelId.includes('imagen') ||
+      modelId.includes('flux') ||
+      modelId.includes('dall-e') ||
+      modelId.includes('recraft') ||
+      modelId.includes('stable-diffusion') ||
+      modelId.includes('sdxl');
+
+    console.log(`[IMAGE_GEN] provider=openrouter`);
+    console.log(`[IMAGE_GEN] model=${modelId}`);
+    console.log(`[IMAGE_GEN] request started`);
 
     const formattedMessages = messages.map((m) => ({
       role: m.role,
@@ -159,6 +183,20 @@ export class OpenRouterAdapter implements ProviderAdapter {
     if (systemPrompt) {
       formattedMessages.unshift({ role: 'system', content: systemPrompt });
     }
+
+    // Build payload with modalities support
+    const payload: Record<string, any> = {
+      model: modelId,
+      messages: formattedMessages,
+      temperature,
+      max_tokens: 4096,
+      stream: !isImageModel || !modelId.includes('flux'),
+    };
+
+    if (isImageModel) {
+      payload.modalities = ['image', 'text'];
+    }
+
 
     let response: Response;
     try {
@@ -170,12 +208,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
           'HTTP-Referer': 'https://makkari.ai',
           'X-Title': 'Makkari AI Workspace',
         },
-        body: JSON.stringify({
-          model: modelId,
-          messages: formattedMessages,
-          temperature,
-          stream: true,
-        }),
+        body: JSON.stringify(payload),
         signal: abortSignal,
       });
     } catch (err) {
@@ -187,23 +220,104 @@ export class OpenRouterAdapter implements ProviderAdapter {
       return;
     }
 
+    console.log(`[IMAGE_GEN] response status=${response.status}`);
+
     if (!response.ok) {
       const errText = await response.text().catch(() => 'Unknown error');
+      let errJson: any = null;
+      try {
+        errJson = JSON.parse(errText);
+      } catch {}
+
+      const providerMsg = errJson?.error?.message || errText;
+      let userFriendlyMsg = 'Error connecting to OpenRouter.';
+
+      if (response.status === 401 || response.status === 403) {
+        userFriendlyMsg = 'OpenRouter authentication failed. Please verify your API key in Settings.';
+      } else if (response.status === 402) {
+        userFriendlyMsg = 'OpenRouter credit quota exceeded. Please check your account balance.';
+      } else if (response.status === 404) {
+        userFriendlyMsg = `OpenRouter model "${modelId}" is currently unavailable.`;
+      } else if (response.status === 429) {
+        userFriendlyMsg = 'OpenRouter rate limit reached. Please wait a moment and try again.';
+      } else if (errJson?.error?.message) {
+        userFriendlyMsg = errJson.error.message;
+      }
+
+      console.error(`[IMAGE_GEN] error status=${response.status} msg="${providerMsg}"`);
+
       yield {
         type: 'error',
         error: {
           provider: 'openrouter',
           status: response.status,
           modelUnavailable: response.status === 404,
-          message: `OpenRouter API Error (${response.status}): ${errText}`,
-          userMessage:
-            response.status === 404
-              ? `OpenRouter model "${modelId}" is currently unavailable.`
-              : 'Error connecting to OpenRouter.',
+          message: `OpenRouter API Error (${response.status}): ${providerMsg}`,
+          userMessage: userFriendlyMsg,
           retryable: response.status >= 500 || response.status === 429,
         },
       };
       return;
+    }
+
+    // Non-streaming response handling (e.g. for image models that return full JSON)
+    const contentType = response.headers.get('content-type') || '';
+    if (!payload.stream || contentType.includes('application/json')) {
+      try {
+        const data = await response.json();
+        console.log(`[IMAGE_GEN] response type=json`);
+
+        const choice = data.choices?.[0];
+        const msg = choice?.message;
+
+        // 1. Check for structured images array
+        if (Array.isArray(msg?.images) && msg.images.length > 0) {
+          console.log(`[IMAGE_GEN] image detected=true`);
+          for (const img of msg.images) {
+            const imgUrl = typeof img === 'string' ? img : img.url || img.image_url?.url;
+            if (imgUrl) {
+              yield {
+                type: 'text',
+                content: `\n\n![Generated Image](${imgUrl})\n\n`,
+              };
+            }
+          }
+        }
+
+        // 2. Check for content (string or multimodal parts array)
+        if (typeof msg?.content === 'string') {
+          yield {
+            type: 'text',
+            content: msg.content,
+          };
+        } else if (Array.isArray(msg?.content)) {
+          for (const part of msg.content) {
+            if (part.type === 'text' && part.text) {
+              yield { type: 'text', content: part.text };
+            } else if (part.type === 'image_url' && part.image_url?.url) {
+              console.log(`[IMAGE_GEN] image detected=true`);
+              yield {
+                type: 'text',
+                content: `\n\n![Generated Image](${part.image_url.url})\n\n`,
+              };
+            }
+          }
+        }
+
+        yield { type: 'done' };
+        return;
+      } catch (jsonErr) {
+        yield {
+          type: 'error',
+          error: {
+            provider: 'openrouter',
+            message: 'Failed to parse OpenRouter response JSON.',
+            userMessage: 'OpenRouter returned an unparseable response.',
+            retryable: true,
+          },
+        };
+        return;
+      }
     }
 
     if (!response.body) {
@@ -264,13 +378,38 @@ export class OpenRouterAdapter implements ProviderAdapter {
                 };
               }
 
+              // Multimodal images in delta
+              if (Array.isArray(delta?.images) && delta.images.length > 0) {
+                console.log(`[IMAGE_GEN] image detected=true`);
+                for (const img of delta.images) {
+                  const imgUrl = typeof img === 'string' ? img : img.url || img.image_url?.url;
+                  if (imgUrl) {
+                    yield {
+                      type: 'text',
+                      content: `\n\n![Generated Image](${imgUrl})\n\n`,
+                    };
+                  }
+                }
+              }
 
-              // Text content
-              if (delta?.content) {
+              // Text content (string or parts array)
+              if (typeof delta?.content === 'string') {
                 yield {
                   type: 'text',
                   content: delta.content,
                 };
+              } else if (Array.isArray(delta?.content)) {
+                for (const part of delta.content) {
+                  if (part.type === 'text' && part.text) {
+                    yield { type: 'text', content: part.text };
+                  } else if (part.type === 'image_url' && part.image_url?.url) {
+                    console.log(`[IMAGE_GEN] image detected=true`);
+                    yield {
+                      type: 'text',
+                      content: `\n\n![Generated Image](${part.image_url.url})\n\n`,
+                    };
+                  }
+                }
               }
             } catch {
               // Ignore partial JSON chunks
@@ -290,6 +429,7 @@ export class OpenRouterAdapter implements ProviderAdapter {
       reader.releaseLock();
     }
   }
+
 
   supports(model: MakkariModel): boolean {
     return model.providerKey === 'openrouter';
