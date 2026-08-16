@@ -1,5 +1,3 @@
-# Makkari AI Database & Storage Schema
-
 ## Table `profiles`
 
 ### Columns
@@ -7,17 +5,15 @@
 | Name | Type | Constraints |
 |------|------|-------------|
 | `id` | `uuid` | Primary |
-| `email` | `text` | Unique |
-| `full_name` | `text` | Nullable |
-| `username` | `text` | Nullable Unique |
-| `avatar_url` | `text` | Nullable |
-| `theme` | `text` | Nullable ('light' \| 'dark' \| 'system') |
-| `preferred_model_id` | `text` | Nullable |
-| `ai_preferences` | `jsonb` | Nullable |
-| `created_at` | `timestamptz` | Default now() |
-| `updated_at` | `timestamptz` | Default now() |
-
----
+| `email` | `text` |  Unique |
+| `full_name` | `text` |  Nullable |
+| `username` | `text` |  Nullable Unique |
+| `avatar_url` | `text` |  Nullable |
+| `theme` | `text` |  Nullable |
+| `preferred_model_id` | `text` |  Nullable |
+| `ai_preferences` | `jsonb` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
 
 ## Table `user_settings`
 
@@ -26,88 +22,13 @@
 | Name | Type | Constraints |
 |------|------|-------------|
 | `id` | `uuid` | Primary |
-| `user_id` | `uuid` | Unique (FK -> auth.users.id) |
-| `appearance` | `jsonb` | |
-| `model_preferences` | `jsonb` | |
-| `storage_preferences` | `jsonb` | |
-| `privacy_settings` | `jsonb` | |
-| `developer_mode` | `bool` | |
-| `updated_at` | `timestamptz` | Default now() |
-
----
-
-## Table `user_memory_settings`
-
-### Columns
-
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `uuid` | Primary | |
-| `user_id` | `uuid` | Unique (FK -> auth.users.id) | User identifier |
-| `personalization_enabled` | `bool` | Default true | Controls prompt context injection |
-| `memory_enabled` | `bool` | Default true | Controls memory creation / updates |
-| `created_at` | `timestamptz` | Default now() | |
-| `updated_at` | `timestamptz` | Default now() | |
-
----
-
-## Table `conversation_summaries` (Layer 1 — Recent Context)
-
-### Columns
-
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `uuid` | Primary | |
-| `user_id` | `uuid` | FK -> auth.users.id | |
-| `chat_id` | `uuid` | Unique (FK -> public.chats.id) | Source conversation |
-| `summary` | `text` | Not Null | 1-2 sentence rolling summary |
-| `importance` | `float` | 0.0 .. 1.0 (default 0.8) | Importance weight |
-| `topics` | `text[]` | Default '{}' | Extracted topic tags |
-| `created_at` | `timestamptz` | Default now() | |
-| `updated_at` | `timestamptz` | Default now() | |
-| `last_used_at` | `timestamptz` | Default now() | Prompt retrieval timestamp |
-
----
-
-## Table `user_memories` (Layer 2 — Long-Term Persistent Memory)
-
-### Columns
-
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `uuid` | Primary | |
-| `user_id` | `uuid` | FK -> auth.users.id | |
-| `type` | `text` | 'preference' \| 'profile' \| 'project' \| 'goal' \| 'workflow' \| 'technical_preference' \| 'other' | Category tag |
-| `content` | `text` | Not Null | Stable user fact/preference |
-| `source` | `text` | 'ai' \| 'user' | Provenance badge |
-| `source_chat_id` | `uuid` | Nullable (FK -> public.chats.id) | Optional origin chat |
-| `confidence` | `float` | 0.0 .. 1.0 (default 0.9) | Confidence score |
-| `created_at` | `timestamptz` | Default now() | |
-| `updated_at` | `timestamptz` | Default now() | |
-| `last_used_at` | `timestamptz` | Default now() | |
-
----
-
-## Table `post_chat_jobs` (Durable Server Worker Queue)
-
-### Columns
-
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `uuid` | Primary | |
-| `user_id` | `uuid` | FK -> auth.users.id | |
-| `chat_id` | `uuid` | FK -> public.chats.id | |
-| `job_type` | `text` | Default 'post_chat_processing' | Title, Summary & Memory job |
-| `status` | `text` | 'pending' \| 'processing' \| 'completed' \| 'failed' | |
-| `attempts` | `int` | Default 0 | Retry counter |
-| `max_attempts` | `int` | Default 3 | Retry limit |
-| `available_at`| `timestamptz`| Default now() | Exponential backoff target |
-| `locked_at` | `timestamptz`| Nullable | Worker lease timestamp |
-| `last_error` | `text` | Nullable | Error log |
-| `created_at` | `timestamptz`| Default now() | |
-| `completed_at`| `timestamptz`| Nullable | |
-
----
+| `user_id` | `uuid` |  Unique |
+| `appearance` | `jsonb` |  |
+| `model_preferences` | `jsonb` |  |
+| `storage_preferences` | `jsonb` |  |
+| `privacy_settings` | `jsonb` |  |
+| `developer_mode` | `bool` |  |
+| `updated_at` | `timestamptz` |  |
 
 ## Table `user_api_keys`
 
@@ -116,106 +37,390 @@
 | Name | Type | Constraints |
 |------|------|-------------|
 | `id` | `uuid` | Primary |
-| `user_id` | `uuid` | FK -> auth.users.id |
-| `provider` | `text` | |
-| `encrypted_key` | `text` | AES-256-GCM ciphertext |
-| `iv` | `text` | AES-256-GCM IV |
-| `key_hint` | `text` | |
-| `is_valid` | `bool` | |
-| `created_at` | `timestamptz` | Default now() |
-| `updated_at` | `timestamptz` | Default now() |
-| `status` | `text` | Nullable |
-
----
+| `user_id` | `uuid` |  |
+| `provider` | `text` |  |
+| `encrypted_key` | `text` |  |
+| `iv` | `text` |  |
+| `key_hint` | `text` |  |
+| `is_valid` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+| `status` | `text` |  Nullable |
 
 ## Table `model_providers`
 
 ### Columns
 
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `text` | Primary | e.g. 'gemini', 'ollama', 'groq' |
-| `provider_key` | `text` | Unique | Provider identifier |
-| `name` | `text` | | Display name |
-| `type` | `text` | | 'local' or 'cloud' |
-| `status` | `text` | | Provider status |
-| `default_model` | `text` | | Default model ID |
-| `enabled_by_default`| `bool` | | |
-| `supported_models` | `jsonb` | | Cached discovered models |
-| `model_capabilities`| `jsonb` | | Dynamic capabilities map |
-| `metadata` | `jsonb` | | Provider metadata |
-| `last_synced_at` | `timestamptz`| | Discovery timestamp |
-| `last_sync_error` | `text` | | Last discovery error |
-| `discovery_status` | `text` | | 'active' \| 'degraded' \| 'offline' |
-| `created_at` | `timestamptz`| | |
-
----
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `text` | Primary |
+| `provider_key` | `text` |  Unique |
+| `name` | `text` |  |
+| `type` | `text` |  |
+| `status` | `text` |  |
+| `default_model` | `text` |  |
+| `enabled_by_default` | `bool` |  |
+| `supported_models` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `model_capabilities` | `jsonb` |  Nullable |
+| `metadata` | `jsonb` |  Nullable |
+| `last_synced_at` | `timestamptz` |  Nullable |
+| `last_sync_error` | `text` |  Nullable |
+| `discovery_status` | `text` |  Nullable |
 
 ## Table `chats`
 
 ### Columns
 
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `uuid` | Primary | |
-| `user_id` | `uuid` | FK -> auth.users.id | |
-| `title` | `text` | | Conversation title |
-| `title_source` | `text` | 'auto' \| 'user' | Manual title protection |
-| `provider_id` | `text` | | Active provider |
-| `model_id` | `text` | | Discovered provider model ID |
-| `pinned_at` | `timestamptz` | Nullable | **Canonical Pin State** (`pinned_at IS NOT NULL`) |
-| `pin_order` | `int` | Default 0 | Custom pin order |
-| `is_pinned` | `bool` | Default false | Legacy compatibility column |
-| `is_archived` | `bool` | Default false | |
-| `summary_status`| `text` | 'pending' \| 'processing' \| 'completed' \| 'failed' | Post-chat status |
-| `summary_updated_at`| `timestamptz`| Nullable | |
-| `system_prompt` | `text` | Nullable | |
-| `metadata` | `jsonb` | | |
-| `created_at` | `timestamptz` | Default now() | |
-| `updated_at` | `timestamptz` | Default now() | |
-| `title_generated`| `bool` | | |
-| `title_locked` | `bool` | | |
-
----
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  |
+| `title` | `text` |  |
+| `provider_id` | `text` |  |
+| `model_id` | `text` |  |
+| `is_pinned` | `bool` |  |
+| `is_archived` | `bool` |  |
+| `system_prompt` | `text` |  Nullable |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+| `title_generated` | `bool` |  |
+| `title_locked` | `bool` |  |
+| `pinned_at` | `timestamptz` |  Nullable |
+| `pin_order` | `int4` |  Nullable |
+| `title_source` | `text` |  Nullable |
+| `summary_status` | `text` |  Nullable |
+| `summary_updated_at` | `timestamptz` |  Nullable |
 
 ## Table `messages`
 
 ### Columns
 
-| Name | Type | Constraints | Description |
-|------|------|-------------|-------------|
-| `id` | `uuid` | Primary | |
-| `chat_id` | `uuid` | FK -> public.chats.id | |
-| `user_id` | `uuid` | FK -> auth.users.id | |
-| `role` | `text` | 'user' \| 'assistant' \| 'system' | |
-| `content` | `text` | Markdown text | |
-| `model_id` | `text` | Nullable | Model ID used |
-| `provider_id` | `text` | Nullable | Provider ID used |
-| `token_count` | `jsonb` | Token metrics | |
-| `attachments` | `jsonb` | `ChatAttachment[]` metadata | Storage path: `${user.id}/chats/${chatId}/${attachmentId}` |
-| `metadata` | `jsonb` | Reasoning & timing | `{ reasoning: { available: bool, summary: string, durationMs: number, provider: string } }` |
-| `created_at` | `timestamptz` | Default now() | |
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `chat_id` | `uuid` |  |
+| `user_id` | `uuid` |  |
+| `role` | `text` |  |
+| `content` | `text` |  |
+| `model_id` | `text` |  Nullable |
+| `provider_id` | `text` |  Nullable |
+| `token_count` | `jsonb` |  |
+| `attachments` | `jsonb` |  |
+| `metadata` | `jsonb` |  |
+| `created_at` | `timestamptz` |  |
 
----
+## Table `user_memory_settings`
 
-## RPC Functions
+### Columns
 
-### `toggle_chat_pin(p_chat_id uuid, p_pin boolean) -> jsonb`
-- **Description**: Atomically pins or unpins a chat for the authenticated user.
-- **Concurrency**: Employs `pg_advisory_xact_lock(hashtext(auth.uid()::text))` inside transaction to prevent concurrent race conditions from exceeding the 10-pin maximum limit.
-- **Returns**: `{ "success": true, "pinned": true, "chat_id": "..." }` or `{ "success": false, "error": "MAX_PINS_REACHED", "message": "Maximum 10 pinned chats reached. Unpin a chat to pin another." }`.
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  Unique |
+| `personalization_enabled` | `bool` |  |
+| `memory_enabled` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
 
----
+## Table `conversation_summaries`
 
-## Storage Buckets
+### Columns
 
-### Bucket `chat-attachments` (Private)
-- **File size limit**: 25 MB (`26214400` bytes)
-- **Path format**: `${user.id}/chats/${chatId}/${attachmentId}` (UUID isolated)
-- **Access**: Short-lived signed URLs (1-hour validity)
-- **Policy**: `Users can manage own attachments` restricted to `(storage.foldername(name))[1] = auth.uid()::text`
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  |
+| `chat_id` | `uuid` |  Unique |
+| `summary` | `text` |  |
+| `importance` | `float8` |  |
+| `topics` | `_text` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+| `last_used_at` | `timestamptz` |  |
 
-### Bucket `avatars` (Public)
-- **File size limit**: 5 MB (`5242880` bytes)
-- **Path format**: `${user.id}/avatar.${ext}`
-- **Access**: Public URL
+## Table `user_memories`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  |
+| `type` | `text` |  |
+| `content` | `text` |  |
+| `source` | `text` |  |
+| `source_chat_id` | `uuid` |  Nullable |
+| `confidence` | `float8` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+| `last_used_at` | `timestamptz` |  |
+
+## Table `post_chat_jobs`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  |
+| `chat_id` | `uuid` |  |
+| `job_type` | `text` |  |
+| `status` | `text` |  |
+| `attempts` | `int4` |  |
+| `max_attempts` | `int4` |  |
+| `available_at` | `timestamptz` |  |
+| `locked_at` | `timestamptz` |  Nullable |
+| `last_error` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `completed_at` | `timestamptz` |  Nullable |
+
+## Table `conversation_artifacts`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  |
+| `chat_id` | `uuid` |  |
+| `title` | `text` |  |
+| `description` | `text` |  Nullable |
+| `artifact_type` | `text` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `artifact_files`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `artifact_id` | `uuid` |  |
+| `user_id` | `uuid` |  |
+| `chat_id` | `uuid` |  |
+| `filename` | `text` |  |
+| `mime_type` | `text` |  |
+| `language` | `text` |  |
+| `size_bytes` | `int8` |  |
+| `content` | `text` |  |
+| `storage_path` | `text` |  Nullable |
+| `content_hash` | `text` |  |
+| `version` | `int4` |  |
+| `is_entry_file` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+## Table `message_attachments`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `message_id` | `uuid` |  Nullable |
+| `chat_id` | `uuid` |  |
+| `user_id` | `uuid` |  |
+| `filename` | `text` |  |
+| `mime_type` | `text` |  |
+| `size_bytes` | `int8` |  |
+| `content` | `text` |  Nullable |
+| `storage_path` | `text` |  Nullable |
+| `is_pasted` | `bool` |  |
+| `created_at` | `timestamptz` |  |
+
+## Table `tool_execution_logs`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `user_id` | `uuid` |  Nullable |
+| `chat_id` | `text` |  Nullable |
+| `turn_id` | `text` |  Nullable |
+| `call_id` | `text` |  |
+| `tool_name` | `text` |  |
+| `source` | `text` |  |
+| `status` | `text` |  |
+| `duration_ms` | `int4` |  |
+| `confirmation_required` | `bool` |  Nullable |
+| `confirmation_result` | `text` |  Nullable |
+| `error_code` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+
+## Table `pending_actions`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `uuid` | Primary |
+| `conversation_id` | `uuid` |  |
+| `user_id` | `uuid` |  |
+| `tool` | `text` |  |
+| `arguments` | `jsonb` |  |
+| `display_arguments` | `jsonb` |  Nullable |
+| `status` | `text` |  |
+| `execution_id` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `expires_at` | `timestamptz` |  |
+| `completed_at` | `timestamptz` |  Nullable |
+
+## Table `user_mcp_servers`
+
+### Columns
+
+| Name | Type | Constraints |
+|------|------|-------------|
+| `id` | `text` | Primary |
+| `user_id` | `uuid` |  |
+| `name` | `text` |  |
+| `url` | `text` |  |
+| `transport` | `text` |  |
+| `encrypted_auth` | `text` |  Nullable |
+| `iv` | `text` |  Nullable |
+| `auth_type` | `text` |  Nullable |
+| `refresh_token_encrypted` | `text` | Nullable |
+| `token_expires_at` | `timestamptz` | Nullable |
+| `scopes` | `_text` | Nullable |
+| `status` | `text` |  |
+| `server_info` | `jsonb` |  Nullable |
+| `capabilities` | `jsonb` |  Nullable |
+| `tool_catalog` | `jsonb` |  Nullable |
+| `last_discovered_at` | `timestamptz` |  Nullable |
+| `connected_at` | `timestamptz` | Nullable |
+| `last_connected_at` | `timestamptz` |  Nullable |
+| `last_error` | `text` |  Nullable |
+| `created_at` | `timestamptz` |  |
+| `updated_at` | `timestamptz` |  |
+
+
+## RLS Policies
+
+### `conversation_artifacts`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can delete own conversation artifacts` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can insert own conversation artifacts` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can select own conversation artifacts` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can update own conversation artifacts` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `artifact_files`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can delete own artifact files` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can insert own artifact files` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can select own artifact files` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can update own artifact files` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `message_attachments`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can delete own message attachments` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can insert own message attachments` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can select own message attachments` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can update own message attachments` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `model_providers`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Anyone can view model providers` | SELECT | public | PERMISSIVE | `true` | — |
+
+### `profiles`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can update own profile` | UPDATE | public | PERMISSIVE | `(auth.uid() = id)` | — |
+| `Users can view own profile` | SELECT | public | PERMISSIVE | `(auth.uid() = id)` | — |
+
+### `user_settings`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can insert own settings` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can update own settings` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can view own settings` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `messages`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can create messages in own chats` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can delete own messages` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can update own messages` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can view own chat messages` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `user_api_keys`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can delete own api keys` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can insert own api keys` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can update own api keys` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can view own api keys` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `chats`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can create own chats` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can delete own chats` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can update own chats` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can view own chats` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `user_memory_settings`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can manage own memory settings` | ALL | authenticated | PERMISSIVE | `(auth.uid() = user_id)` | `(auth.uid() = user_id)` |
+
+### `conversation_summaries`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can read own conversation summaries` | SELECT | authenticated | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `user_memories`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can manage own user memories` | ALL | authenticated | PERMISSIVE | `(auth.uid() = user_id)` | `(auth.uid() = user_id)` |
+
+### `post_chat_jobs`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can read own post-chat jobs` | SELECT | authenticated | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `tool_execution_logs`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can insert their own tool execution logs` | INSERT | public | PERMISSIVE | — | `((auth.uid() = user_id) OR (user_id IS NULL))` |
+| `Users can view their own tool execution logs` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `pending_actions`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can delete their own pending actions` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can insert their own pending actions` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can update their own pending actions` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can view their own pending actions` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
+### `user_mcp_servers`
+
+| Policy | Command | Roles | Action | USING | WITH CHECK |
+|--------|---------|-------|--------|-------|------------|
+| `Users can delete their own MCP servers` | DELETE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can insert their own MCP servers` | INSERT | public | PERMISSIVE | — | `(auth.uid() = user_id)` |
+| `Users can update their own MCP servers` | UPDATE | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+| `Users can view their own MCP servers` | SELECT | public | PERMISSIVE | `(auth.uid() = user_id)` | — |
+
